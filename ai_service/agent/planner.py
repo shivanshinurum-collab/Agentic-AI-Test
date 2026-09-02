@@ -78,8 +78,8 @@ class AutonomousHeuristicPlanner(BasePlanner):
 
             # 3. Check for Trip / Travel / Vacation / Itinerary Inquiry
             is_pure_directions = any(w in prompt_lower for w in ["directions", "turn by turn", "navigation", "how far is", "distance between", "geocode", "coordinates"]) and not any(w in prompt_lower for w in ["trip", "itinerary", "vacation", "tour", "holiday", "darshan", "stay", "hotel", "food", "places to visit"])
-            trip_keywords = ["trip", "travel", "tour", "itinerary", "vacation", "holiday", "visit", "sightseeing", "darshan", "explore", "stay", "budget", "hotel", "food", "khana", "ghoomne"]
-            is_trip_inquiry = not is_pure_directions and (any(k in prompt_lower for k in trip_keywords) or bool(re.search(r'\b(?:to|in|se)\s+[a-zA-Z\s]+\s+trip\b', prompt_lower)))
+            trip_keywords = ["trip", "travel", "tour", "itinerary", "vacation", "holiday", "visit", "sightseeing", "darshan", "explore", "stay", "budget", "hotel", "food", "khana", "ghoomne", "plan", "guide", "package"]
+            is_trip_inquiry = not is_pure_directions and (any(k in prompt_lower for k in trip_keywords) or bool(re.search(r'\b(?:to|in|se)\s+[a-zA-Z\s]+\s+(?:trip|plan|tour)\b', prompt_lower)))
 
             if is_trip_inquiry:
                 days = 2 if any(w in prompt_lower for w in ["2 day", "2-day", "two day", "weekend"]) else (3 if any(w in prompt_lower for w in ["3 day", "3-day", "three day"]) else 1)
@@ -298,8 +298,8 @@ class AutonomousHeuristicPlanner(BasePlanner):
 
         if step_num == 2:
             # Multi-step travel planning sequence: Google Maps route -> Weather -> Trip Planner
-            trip_keywords = ["trip", "travel", "tour", "itinerary", "vacation", "holiday", "visit", "sightseeing", "darshan", "explore", "stay", "budget", "hotel", "food", "khana", "ghoomne"]
-            is_trip_goal = any(k in prompt_lower for k in trip_keywords) or bool(re.search(r'\b(?:to|in|se)\s+[a-zA-Z\s]+\s+trip\b', prompt_lower))
+            trip_keywords = ["trip", "travel", "tour", "itinerary", "vacation", "holiday", "visit", "sightseeing", "darshan", "explore", "stay", "budget", "hotel", "food", "khana", "ghoomne", "plan", "guide", "package"]
+            is_trip_goal = any(k in prompt_lower for k in trip_keywords) or bool(re.search(r'\b(?:to|in|se)\s+[a-zA-Z\s]+\s+(?:trip|plan|tour)\b', prompt_lower))
             
             if is_trip_goal and last_action == "google_maps":
                 orig = last_step.get("action_input", {}).get("origin") or last_obs.get("origin") or "Indore"

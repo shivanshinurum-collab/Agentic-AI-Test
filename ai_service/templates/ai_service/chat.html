@@ -701,6 +701,74 @@
             border: 1px solid rgba(99, 102, 241, 0.2);
         }
 
+        /* Markdown Tables */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            margin: 0.85rem 0;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .chat-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+            text-align: left;
+        }
+
+        .chat-table th {
+            background: rgba(99, 102, 241, 0.14);
+            color: #c7d2fe;
+            padding: 0.65rem 0.85rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .chat-table td {
+            padding: 0.6rem 0.85rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+        }
+
+        .chat-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .chat-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Markdown Quotes & Links & Dividers */
+        .chat-quote {
+            border-left: 3px solid var(--primary);
+            background: rgba(99, 102, 241, 0.08);
+            padding: 0.65rem 1rem;
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            margin: 0.8rem 0;
+            font-style: italic;
+            color: #c7d2fe;
+        }
+
+        .chat-link {
+            color: #818cf8;
+            text-decoration: underline;
+            text-underline-offset: 3px;
+            font-weight: 500;
+            transition: color 0.15s ease;
+        }
+
+        .chat-link:hover {
+            color: #06b6d4;
+        }
+
+        .chat-divider {
+            border: none;
+            height: 1px;
+            background: var(--border-subtle);
+            margin: 1.25rem 0;
+        }
+
         .code-block-container {
             background: var(--code-bg);
             border: 1px solid var(--border-subtle);
@@ -1907,33 +1975,76 @@
                 `;
             });
 
-            // 2. Headings
+            // 2. Markdown Tables
+            processed = processed.replace(/(?:^|\n)(\|.+?\|\n\|[-:\s|]+\|\n(?:\|.+?\|\n?)+)/g, (match, tableText) => {
+                const lines = tableText.trim().split('\n');
+                if (lines.length < 2) return match;
+
+                const headerCols = lines[0].split('|').slice(1, -1).map(c => c.trim());
+                let tableHtml = '<div class="table-responsive"><table class="chat-table"><thead><tr>';
+                headerCols.forEach(h => {
+                    tableHtml += `<th>${renderInline(h)}</th>`;
+                });
+                tableHtml += '</tr></thead><tbody>';
+
+                for (let i = 2; i < lines.length; i++) {
+                    const rowCols = lines[i].split('|').slice(1, -1).map(c => c.trim());
+                    if (rowCols.length > 0) {
+                        tableHtml += '<tr>';
+                        rowCols.forEach(cell => {
+                            tableHtml += `<td>${renderInline(cell)}</td>`;
+                        });
+                        tableHtml += '</tr>';
+                    }
+                }
+                tableHtml += '</tbody></table></div>';
+                return '\n\n' + tableHtml + '\n\n';
+            });
+
+            // 3. Blockquotes
+            processed = processed.replace(/^>\s*(.*?)$/gim, '<blockquote class="chat-quote">$1</blockquote>');
+
+            // 4. Horizontal Dividers
+            processed = processed.replace(/^---$/gim, '<hr class="chat-divider">');
+
+            // 5. Headings
             processed = processed.replace(/^### (.*$)/gim, '<h3>$1</h3>');
             processed = processed.replace(/^## (.*$)/gim, '<h2>$1</h2>');
             processed = processed.replace(/^# (.*$)/gim, '<h1>$1</h1>');
 
-            // 3. Bold, Italic
+            // 6. Markdown Links [text](url)
+            processed = processed.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-link">$1</a>');
+
+            // 7. Bold, Italic, Inline Code
             processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
             processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
-
-            // 4. Inline code
             processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-            // 5. Lists (unordered)
-            processed = processed.replace(/^\s*[-*]\s+(.*)$/gim, '<li>$1</li>');
+            // 8. Lists (unordered & bullet points)
+            processed = processed.replace(/^\s*[-*•]\s+(.*)$/gim, '<li>$1</li>');
             processed = processed.replace(/(<li>[\s\S]*?<\/li>)/gm, '<ul>$1</ul>');
             processed = processed.replace(/<\/ul>\s*<ul>/g, '');
 
-            // 6. Line breaks and paragraphs
+            // 9. Line breaks and paragraphs
             const paragraphs = processed.split(/\n\n+/);
             processed = paragraphs.map(p => {
-                if (p.startsWith('<h') || p.startsWith('<ul') || p.startsWith('<div')) {
-                    return p;
+                const trimmed = p.trim();
+                if (!trimmed) return '';
+                if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<div') || trimmed.startsWith('<blockquote') || trimmed.startsWith('<hr')) {
+                    return trimmed;
                 }
-                return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+                return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
             }).join('');
 
             return processed;
+        }
+
+        function renderInline(text) {
+            return text
+                .replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-link">$1</a>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>');
         }
 
         // Copy Code Block Handler

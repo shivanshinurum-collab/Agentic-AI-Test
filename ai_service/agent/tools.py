@@ -236,7 +236,7 @@ class PythonCodeTool(BaseTool):
 class WebSearchTool(BaseTool):
     """
     Real-time live web search engine powered by DuckDuckGo.
-    Retrieves live web results, snippets, titles, and reference URLs.
+    Retrieves live web results, snippets, titles, and reference URLs with ad-filtering.
     """
     name = "web_search"
     description = "Searches the live internet for up-to-date information, news, current events, place reviews, facts, and website links."
@@ -261,68 +261,73 @@ class WebSearchTool(BaseTool):
         max_results = min(max(1, int(max_results)), 10)
         results = []
 
-        # 1. Try DuckDuckGo Instant Answer API (JSON)
+        # 1. Try DuckDuckGo HTML Lite scraping with strict ad-filtering
         try:
             enc_query = urllib.parse.quote(query_str)
-            api_url = f"https://api.duckduckgo.com/?q={enc_query}&format=json&no_html=1&skip_disambig=1"
-            data = _http_get_json(api_url, timeout=4.0)
-            if data:
-                # Abstract
-                if data.get("AbstractText"):
-                    results.append({
-                        "title": data.get("Heading") or query_str,
-                        "snippet": data.get("AbstractText"),
-                        "url": data.get("AbstractURL") or f"https://duckduckgo.com/?q={enc_query}",
-                        "source": data.get("AbstractSource") or "DuckDuckGo Instant Answer"
-                    })
-                # Related topics
-                for topic in data.get("RelatedTopics", []):
-                    if len(results) >= max_results:
-                        break
-                    if isinstance(topic, dict) and topic.get("Text"):
-                        results.append({
-                            "title": topic.get("Text").split(" - ")[0] if " - " in topic.get("Text") else query_str,
-                            "snippet": topic.get("Text"),
-                            "url": topic.get("FirstURL", ""),
-                            "source": "DuckDuckGo Related Topic"
-                        })
-        except Exception:
-            pass
+            html_url = f"https://html.duckduckgo.com/html/?q={enc_query}"
+            html_text = _http_get_text(html_url, timeout=5.0)
+            if html_text:
+                blocks = re.findall(r'<div class="result results_links[^"]*"[^>]*>(.*?)</div>\s*</div>', html_text, re.DOTALL)
+                if not blocks:
+                    blocks = re.findall(r'<div class="result[^"]*"[^>]*>(.*?)</div>\s*</div>', html_text, re.DOTALL)
 
-        # 2. Try DuckDuckGo HTML Lite scraping if instant answer returned few results
-        if len(results) < 2:
-            try:
-                html_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query_str)}"
-                html_text = _http_get_text(html_url, timeout=5.0)
-                if html_text:
-                    # Parse result blocks using regex
-                    blocks = re.findall(r'<a class="result__snippet[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.DOTALL)
-                    titles = re.findall(r'<a class="result__url[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.DOTALL)
-                    
-                    # Extract general result links
-                    link_matches = re.findall(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.DOTALL)
-                    snippet_matches = re.findall(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', html_text, re.DOTALL)
+                for b in blocks:
+                    # Filter out ads and promotional trackers
+                    if any(bad in b for bad in ["badge--ad", "y.js", "bing.com/aclick", "ad_domain", "ad_provider", "googleadservices"]):
+                        continue
 
-                    for idx, (link, raw_title) in enumerate(link_matches[:max_results]):
-                        clean_title = re.sub(r'<[^>]+>', '', raw_title).strip()
-                        clean_snippet = ""
-                        if idx < len(snippet_matches):
-                            clean_snippet = re.sub(r'<[^>]+>', '', snippet_matches[idx]).strip()
-                        
-                        # Clean DuckDuckGo redirect URL
-                        actual_url = link
-                        if "/l/?" in link or "uddg=" in link:
-                            parsed_link = urllib.parse.urlparse(link)
+                    t_match = re.search(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', b, re.DOTALL)
+                    s_match = re.search(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', b, re.DOTALL)
+
+                    if t_match:
+                        raw_link = t_match.group(1)
+                        actual_url = raw_link
+                        if "uddg=" in raw_link:
+                            parsed_link = urllib.parse.urlparse(raw_link)
                             qs = urllib.parse.parse_qs(parsed_link.query)
                             if "uddg" in qs:
                                 actual_url = qs["uddg"][0]
 
-                        if clean_title and clean_snippet:
+                        clean_title = html.unescape(re.sub(r'<[^>]+>', '', t_match.group(2)).strip())
+                        clean_snippet = html.unescape(re.sub(r'<[^>]+>', '', s_match.group(1)).strip()) if s_match else ""
+
+                        # Filter out empty or duplicate entries
+                        if clean_title and actual_url.startswith("http") and not any(r["url"] == actual_url for r in results):
                             results.append({
-                                "title": html.unescape(clean_title),
-                                "snippet": html.unescape(clean_snippet),
+                                "title": clean_title,
+                                "snippet": clean_snippet,
                                 "url": actual_url,
                                 "source": "DuckDuckGo Live Web"
+                            })
+
+                    if len(results) >= max_results:
+                        break
+        except Exception:
+            pass
+
+        # 2. Try DuckDuckGo Instant Answer API if results are few
+        if len(results) < 2:
+            try:
+                enc_query = urllib.parse.quote(query_str)
+                api_url = f"https://api.duckduckgo.com/?q={enc_query}&format=json&no_html=1&skip_disambig=1"
+                data = _http_get_json(api_url, timeout=4.0)
+                if data:
+                    if data.get("AbstractText"):
+                        results.append({
+                            "title": data.get("Heading") or query_str,
+                            "snippet": data.get("AbstractText"),
+                            "url": data.get("AbstractURL") or f"https://duckduckgo.com/?q={enc_query}",
+                            "source": data.get("AbstractSource") or "DuckDuckGo Instant Answer"
+                        })
+                    for topic in data.get("RelatedTopics", []):
+                        if len(results) >= max_results:
+                            break
+                        if isinstance(topic, dict) and topic.get("Text"):
+                            results.append({
+                                "title": topic.get("Text").split(" - ")[0] if " - " in topic.get("Text") else query_str,
+                                "snippet": topic.get("Text"),
+                                "url": topic.get("FirstURL", ""),
+                                "source": "DuckDuckGo Related Topic"
                             })
             except Exception:
                 pass
@@ -339,23 +344,6 @@ class WebSearchTool(BaseTool):
                         "url": w.get("url"),
                         "source": "Wikipedia Online Knowledge"
                     })
-
-            if not results:
-                # Try core keyword search on Wikipedia
-                words = [w for w in query_str.split() if len(w) > 3]
-                for w in words:
-                    sub_res = wiki.execute(query=w, limit=2)
-                    if sub_res.get("success") and sub_res.get("results"):
-                        for item in sub_res["results"]:
-                            if not any(r["title"].lower() == item["title"].lower() for r in results):
-                                results.append({
-                                    "title": item["title"],
-                                    "snippet": item["extract"],
-                                    "url": item["url"],
-                                    "source": "Wikipedia Knowledge Base"
-                                })
-                    if results:
-                        break
 
         # 4. Final guaranteed fallback
         if not results:
@@ -946,8 +934,18 @@ class GoogleMapsTool(BaseTool):
         # 3. DIRECTIONS & ROUTING (Origin -> Destination)
         # -------------------------------------------------------------
         elif act in ["directions", "route", "navigation"]:
-            orig = origin or query
+            orig = origin
             dest = destination
+
+            if (not orig or not dest) and (query or orig):
+                raw_text = query or orig
+                from_to_match = re.search(r'(?:from\s+)?([a-zA-Z\s]{2,35}?)\s+(?:to|se|-|➔|->)\s+([a-zA-Z\s]{2,35})', raw_text, re.IGNORECASE)
+                if from_to_match:
+                    orig = from_to_match.group(1).strip()
+                    dest = from_to_match.group(2).strip()
+                elif query and not orig:
+                    orig = query
+
             if not orig or not dest:
                 return {
                     "success": False,
@@ -1184,13 +1182,13 @@ class TripPlannerTool(BaseTool):
     """
     Autonomous Master Trip & Travel Intelligence Tool.
     Dynamically coordinates Google Maps/OSRM, Open-Meteo Weather, Google Places/OSM POIs,
-    Wikipedia, and DuckDuckGo Web Search in real-time to generate complete master travel guides
-    for ANY destination in the world with zero hardcoded templates!
+    Wikipedia, and Deep Live Web Article Extraction in real-time to generate complete master
+    travel guides with real landmarks, authentic regional dishes, and real hotels for ANY destination worldwide!
     """
     name = "trip_planner"
     description = (
         "Generates dynamic master trip itineraries, live route calculations, live weather forecasts, "
-        "top attractions, hotel recommendations across budgets, local delicacies, and calculated expenses "
+        "real top attractions with historical details, authentic food & culinary spots, and realistic budget calculations "
         "for ANY destination worldwide using live external platforms."
     )
     parameters_schema = {
@@ -1220,6 +1218,267 @@ class TripPlannerTool(BaseTool):
             "required": False
         }
     }
+
+    def _extract_items_from_web_article(self, url: str, max_items: int = 6) -> List[Dict[str, str]]:
+        """Deeply extracts named sections, headings, and detailed descriptions from travel and culinary articles."""
+        if not url or not url.startswith("http"):
+            return []
+        try:
+            raw_html = _http_get_text(url, timeout=4.5)
+            if not raw_html:
+                return []
+
+            clean = re.sub(r'<(script|style|svg|noscript)[^>]*>.*?</\1>', '', raw_html, flags=re.DOTALL | re.IGNORECASE)
+            clean = re.sub(r'<!--.*?-->', '', clean, flags=re.DOTALL)
+
+            pattern = r'<(h[2-4])[^>]*>(.*?)</\1>\s*(?:<[^>]+>\s*)*([^<]{30,450})'
+            matches = re.findall(pattern, clean, re.DOTALL)
+
+            results = []
+            seen = set()
+            ignore_keywords = [
+                'table of', 'best time', 'how to reach', 'things to do', 'faq', 'conclusion',
+                'read more', 'related', 'share', 'overview', 'author', 'disclaimer', 'hotels',
+                'restaurants', 'transport', 'comment', 'subscribe', 'sidebar', 'why you must',
+                'pro tip', 'best places', 'key highlights', 'newsletter', 'cookie consent',
+                'privacy policy', 'terms of', 'tripadvisor', 'advertisement', 'sponsored',
+                'what to eat', 'why street food', 'the heartbeat of', 'heartbeat of', 'why you should',
+                'best street food in', 'food culture', 'history of', 'love this recipe', 'introduction'
+            ]
+
+            for tag, title_html, text in matches:
+                t = html.unescape(re.sub(r'<[^>]+>', '', title_html)).strip()
+                t_clean = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]|[\ufe00-\ufe0f]|[\u20d0-\u20ff]', '', t).strip()
+                t_clean = re.sub(r'^\d+[\.\)\-:]\s*', '', t_clean).strip()
+                t_clean = re.sub(r'^\d+\s*', '', t_clean).strip()
+                desc = html.unescape(re.sub(r'\s+', ' ', text)).strip()
+
+                lower = t_clean.lower()
+                if any(bad in lower for bad in ignore_keywords):
+                    continue
+                if 3 <= len(t_clean) <= 50 and len(desc) >= 30 and lower not in seen:
+                    seen.add(lower)
+                    results.append({
+                        "name": t_clean,
+                        "description": desc
+                    })
+                if len(results) >= max_items:
+                    break
+
+            return results
+        except Exception:
+            return []
+
+    def _get_real_attractions(self, dest: str, search_tool: WebSearchTool, wiki_tool: WikipediaTool) -> List[Dict[str, str]]:
+        """Extracts real named landmarks and attractions using Deep Web Scraper, Wikipedia sections, and OpenStreetMap."""
+        attractions = []
+        seen = set()
+        dest_clean = dest.strip().title()
+
+        # 1. Deep Web Scraper Extraction on top travel guide articles
+        search_res = search_tool.execute(query=f"top places to visit in {dest_clean} sightseeing attractions", max_results=4)
+        for r in search_res.get("results", []):
+            url = r.get("url", "")
+            if "tripadvisor" in url.lower():
+                continue
+            items = self._extract_items_from_web_article(url, max_items=5)
+            for it in items:
+                name = it["name"]
+                lower = name.lower()
+                if lower not in seen and len(name) >= 3:
+                    seen.add(lower)
+                    query_enc = urllib.parse.quote(f"{name} {dest_clean}")
+                    attractions.append({
+                        "name": name,
+                        "highlights": it["description"],
+                        "rating": "⭐ Must Visit Landmark",
+                        "maps_url": f"https://www.google.com/maps/search/?api=1&query={query_enc}"
+                    })
+                if len(attractions) >= 6:
+                    break
+            if len(attractions) >= 4:
+                break
+
+        # 2. Wikipedia Landmark & Section Extraction Fallback
+        if len(attractions) < 3:
+            candidate_pages = [f"Tourism in {dest_clean}", f"List of tourist attractions in {dest_clean}", dest_clean]
+            ignore_sections = {
+                'history', 'geography', 'climate', 'demographics', 'economy', 'administration',
+                'transport', 'transportation', 'education', 'media', 'sports', 'references',
+                'external links', 'see also', 'further reading', 'notable people', 'sister cities',
+                'government', 'infrastructure', 'civic administration', 'etymology', 'access',
+                'town', 'biosphere', 'wildlife', 'film location', 'water activities', 'economic impact'
+            }
+
+            for p in candidate_pages:
+                try:
+                    url = f"https://en.wikipedia.org/w/api.php?action=parse&page={urllib.parse.quote(p)}&prop=sections|links&format=json"
+                    data = _http_get_json(url, timeout=3.5)
+                    if data and "parse" in data:
+                        # Extract landmark links
+                        for l in data["parse"].get("links", []):
+                            name = l.get("*", "")
+                            lower = name.lower()
+                            if l.get("ns") == 0 and 3 < len(name) < 40 and lower not in seen:
+                                if not any(bad in lower for bad in ['list of', 'tourism in', 'history', 'climate', 'railway', 'airport', 'highway', 'metro', 'demographics', 'population', 'economy', 'wikipedia', 'template', 'category', 'india', 'district', 'state', 'language', 'culture of', dest_clean.lower()]):
+                                    seen.add(lower)
+                                    query_enc = urllib.parse.quote(f"{name} {dest_clean}")
+                                    attractions.append({
+                                        "name": name,
+                                        "highlights": f"Historic landmark and prominent cultural attraction in {dest_clean}.",
+                                        "rating": "⭐ Iconic Heritage Spot",
+                                        "maps_url": f"https://www.google.com/maps/search/?api=1&query={query_enc}"
+                                    })
+                                if len(attractions) >= 6:
+                                    break
+                except Exception:
+                    pass
+                if len(attractions) >= 4:
+                    break
+
+        # 3. Final Fallback: Query Wikipedia entity summaries for top landmarks
+        if len(attractions) < 2:
+            wiki_search = wiki_tool.execute(query=f"{dest_clean} landmark monument temple palace", limit=3)
+            if wiki_search.get("success") and wiki_search.get("results"):
+                for w in wiki_search["results"]:
+                    name = w.get("title", "")
+                    if name.lower() not in seen and name.lower() != dest_clean.lower():
+                        seen.add(name.lower())
+                        query_enc = urllib.parse.quote(f"{name} {dest_clean}")
+                        attractions.append({
+                            "name": name,
+                            "highlights": w.get("extract", f"Prominent scenic and cultural attraction in {dest_clean}.").split(". ")[0] + ".",
+                            "rating": "⭐ Top Sightseeing",
+                            "maps_url": f"https://www.google.com/maps/search/?api=1&query={query_enc}"
+                        })
+
+        return attractions[:6]
+
+    def _get_real_foods(self, dest: str, search_tool: WebSearchTool, wiki_tool: WikipediaTool) -> List[Dict[str, str]]:
+        """Extracts real iconic regional dishes, street food specialties, and famous eateries."""
+        famous_foods = []
+        seen = set()
+        dest_clean = dest.strip().title()
+
+        # 1. Deep Web Article Extraction for local culinary specialties
+        search_res = search_tool.execute(query=f"famous food local street dishes to eat in {dest_clean}", max_results=3)
+        for r in search_res.get("results", []):
+            url = r.get("url", "")
+            if "tripadvisor" in url.lower():
+                continue
+            items = self._extract_items_from_web_article(url, max_items=5)
+            for it in items:
+                name = it["name"]
+                lower = name.lower()
+                if lower not in seen and len(name) >= 3:
+                    seen.add(lower)
+                    famous_foods.append({
+                        "name": name,
+                        "description": it["description"],
+                        "where_to_eat": f"Famous local stalls & iconic culinary eateries across {dest_clean}"
+                    })
+                if len(famous_foods) >= 4:
+                    break
+            if len(famous_foods) >= 3:
+                break
+
+        # 2. Wikipedia Cuisine & Street Food Fallback
+        if not famous_foods:
+            for cand in [f"Street food of {dest_clean}", f"Cuisine of {dest_clean}", f"{dest_clean} cuisine"]:
+                wiki_res = wiki_tool.execute(query=cand, limit=2)
+                if wiki_res.get("success") and wiki_res.get("results"):
+                    for w in wiki_res["results"]:
+                        extract = w.get("extract", "")
+                        if extract and len(extract) > 40 and "may refer to:" not in extract:
+                            famous_foods.append({
+                                "name": w.get("title", f"Authentic {dest_clean} Cuisine"),
+                                "description": extract.split(". ")[0] + ".",
+                                "where_to_eat": f"Popular traditional dining venues and street markets in {dest_clean}"
+                            })
+                            if len(famous_foods) >= 3:
+                                break
+                if famous_foods:
+                    break
+
+        if not famous_foods:
+            famous_foods.append({
+                "name": f"Traditional Regional Specialties of {dest_clean}",
+                "description": f"Authentic local dishes, snacks, and seasonal culinary heritage unique to {dest_clean}.",
+                "where_to_eat": f"Central Food Street, Traditional Bazaars & Local Eateries in {dest_clean}"
+            })
+
+        return famous_foods[:4]
+
+    def _get_real_stays(self, dest: str, search_tool: WebSearchTool, maps_tool: GoogleMapsTool) -> List[Dict[str, Any]]:
+        """Extracts real hotel accommodations categorized into Luxury, Mid-Range, and Budget tiers."""
+        dest_clean = dest.strip().title()
+        hotel_names = []
+        seen = set()
+
+        # 1. Try Google Maps / OpenStreetMap Places lookup
+        places_hotel = maps_tool.execute(action="places_search", query=f"hotels in {dest_clean}")
+        if places_hotel.get("success") and places_hotel.get("places"):
+            for h in places_hotel["places"][:8]:
+                h_name = h.get("name", "")
+                lower = h_name.lower()
+                # Filter out generic listicle article titles
+                if lower not in seen and len(h_name) > 3 and not any(bad in lower for bad in ["10 best", "top 10", "tripadvisor", "resorts 202", "cheap accommodation", "hotels in"]):
+                    seen.add(lower)
+                    rating_str = f" (⭐ {h.get('rating')})" if h.get("rating") else ""
+                    hotel_names.append(f"{h_name}{rating_str}")
+
+        # 2. Try Deep Web Scraper for real hotels
+        if len(hotel_names) < 3:
+            web_hotel = search_tool.execute(query=f"best luxury and boutique hotels in {dest_clean}", max_results=3)
+            for r in web_hotel.get("results", []):
+                items = self._extract_items_from_web_article(r.get("url", ""), max_items=4)
+                for it in items:
+                    name = it["name"]
+                    lower = name.lower()
+                    if lower not in seen and 3 < len(name) < 45 and not any(bad in lower for bad in ["10 best", "top 10", "tripadvisor", "resorts 202"]):
+                        seen.add(lower)
+                        hotel_names.append(name)
+                    if len(hotel_names) >= 6:
+                        break
+
+        # Tier breakdown
+        if len(hotel_names) >= 4:
+            mid_split = max(1, len(hotel_names) // 2)
+            return [
+                {
+                    "category": "👑 Luxury Resorts & Premium 5-Star Stays",
+                    "price_range": "₹4,500 – ₹10,500 / night",
+                    "options": hotel_names[:mid_split]
+                },
+                {
+                    "category": "🏨 Mid-Range & Comfortable Boutique Hotels",
+                    "price_range": "₹2,000 – ₹3,800 / night",
+                    "options": hotel_names[mid_split:mid_split+3]
+                },
+                {
+                    "category": "🎒 Budget Stays, Hostels & Homestays",
+                    "price_range": "₹700 – ₹1,600 / night",
+                    "options": [f"Guesthouses, Hostels & Lodges near central {dest_clean}", f"State Tourism Cottages & Dharamshalas in {dest_clean}"]
+                }
+            ]
+
+        return [
+            {
+                "category": "👑 Luxury Resorts & Premium Stays",
+                "price_range": "₹4,500 – ₹10,500 / night",
+                "options": [f"Top Heritage & 5-Star Resorts in {dest_clean}", f"Premium Boutique Luxury Suites in {dest_clean}"]
+            },
+            {
+                "category": "🏨 Mid-Range & Comfortable Boutique Hotels",
+                "price_range": "₹2,000 – ₹3,800 / night",
+                "options": [f"Comfort 3-Star AC Hotels in {dest_clean}", f"Family Suites & Executive Stays near {dest_clean} center"]
+            },
+            {
+                "category": "🎒 Budget Stays, Hostels & Homestays",
+                "price_range": "₹700 – ₹1,600 / night",
+                "options": [f"Backpacker Hostels & Clean Homestays in {dest_clean}", f"State Tourism Board Cottages in {dest_clean}"]
+            }
+        ]
 
     def execute(
         self,
@@ -1301,118 +1560,42 @@ class TripPlannerTool(BaseTool):
             }
 
         # -------------------------------------------------------------
-        # 4. LIVE TOP ATTRACTIONS & SIGHTSEEING
+        # 4. DEEP REAL TOP ATTRACTIONS & SIGHTSEEING
         # -------------------------------------------------------------
-        attractions = []
-        # Query Places & POIs for attractions
-        places_attr = maps_tool.execute(action="places_search", query=f"tourist attractions in {dest}")
-        if places_attr.get("success") and places_attr.get("places"):
-            for p in places_attr["places"][:6]:
-                name = p.get("name", "")
-                if name and not any(a["name"].lower() == name.lower() for a in attractions):
-                    addr = p.get("address", "")
-                    rating_str = f"⭐ {p.get('rating')}" if p.get("rating") else ""
-                    attractions.append({
-                        "name": name,
-                        "highlights": f"Iconic landmark in {dest}. {addr}".strip(),
-                        "rating": rating_str,
-                        "maps_url": p.get("maps_link")
-                    })
-
-        # Augment with web search if few attractions found
-        if len(attractions) < 3:
-            web_attr = search_tool.execute(query=f"top places to visit in {dest} sightseeing", max_results=4)
-            if web_attr.get("success") and web_attr.get("results"):
-                for r in web_attr["results"]:
-                    t = r.get("title", "").split(" - ")[0].split(" | ")[0]
-                    if t and not any(a["name"].lower() == t.lower() for a in attractions):
-                        attractions.append({
-                            "name": t,
-                            "highlights": r.get("snippet", ""),
-                            "rating": "Must Visit",
-                            "maps_url": f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(t + ' ' + dest)}"
-                        })
+        attractions = self._get_real_attractions(dest, search_tool, wiki_tool)
 
         # -------------------------------------------------------------
-        # 5. LIVE HOTEL & STAY RECOMMENDATIONS
+        # 5. DEEP REAL HOTEL & STAY RECOMMENDATIONS
         # -------------------------------------------------------------
-        stays = []
-        places_hotel = maps_tool.execute(action="places_search", query=f"hotels and resorts in {dest}")
-        hotel_list = []
-        if places_hotel.get("success") and places_hotel.get("places"):
-            for h in places_hotel["places"][:6]:
-                h_name = h.get("name", "")
-                if h_name:
-                    rate = f" (⭐ {h.get('rating')})" if h.get('rating') else ""
-                    hotel_list.append(f"{h_name}{rate}")
-
-        if not hotel_list:
-            web_hotel = search_tool.execute(query=f"best hotels resorts homestays in {dest}", max_results=3)
-            if web_hotel.get("success") and web_hotel.get("results"):
-                for r in web_hotel["results"]:
-                    hotel_list.append(r.get("title", "").split(" - ")[0])
-
-        if hotel_list:
-            mid_split = max(1, len(hotel_list) // 2)
-            stays = [
-                {
-                    "category": "👑 Luxury Resorts & Premium Stays",
-                    "price_range": "₹4,000 – ₹9,500 / night",
-                    "options": hotel_list[:mid_split]
-                },
-                {
-                    "category": "🏨 Mid-Range & Comfortable Boutique Hotels",
-                    "price_range": "₹1,800 – ₹3,500 / night",
-                    "options": hotel_list[mid_split:]
-                },
-                {
-                    "category": "🎒 Budget Stays, Homestays & Dharamshalas",
-                    "price_range": "₹600 – ₹1,500 / night",
-                    "options": [f"Guesthouses & Budget Lodges near central {dest}", f"State Tourism Board Cottages & Dharamshalas in {dest}"]
-                }
-            ]
+        stays = self._get_real_stays(dest, search_tool, maps_tool)
 
         # -------------------------------------------------------------
-        # 6. LIVE FAMOUS LOCAL FOOD & RESTAURANTS
+        # 6. DEEP REAL FAMOUS LOCAL FOOD & DELICACIES
         # -------------------------------------------------------------
-        famous_foods = []
-        places_food = maps_tool.execute(action="places_search", query=f"famous restaurants and food spots in {dest}")
-        if places_food.get("success") and places_food.get("places"):
-            for f in places_food["places"][:4]:
-                famous_foods.append({
-                    "name": f.get("name"),
-                    "description": f"Popular dining and authentic regional culinary spot in {dest}.",
-                    "where_to_eat": f.get("address", f"Central Market / Main Bazaar in {dest}")
-                })
-
-        if not famous_foods:
-            web_food = search_tool.execute(query=f"famous food local dishes in {dest}", max_results=3)
-            if web_food.get("success") and web_food.get("results"):
-                for r in web_food["results"]:
-                    famous_foods.append({
-                        "name": r.get("title", "").split(" - ")[0],
-                        "description": r.get("snippet", "Traditional specialty dishes."),
-                        "where_to_eat": f"Prominent local food stalls & dining venues in {dest}"
-                    })
+        famous_foods = self._get_real_foods(dest, search_tool, wiki_tool)
 
         # -------------------------------------------------------------
         # 7. DYNAMIC DAY-WISE ITINERARY GENERATION
         # -------------------------------------------------------------
         itinerary_days = {}
         attr_count = len(attractions)
-        if attr_count > 0:
+        food_names = [f["name"] for f in famous_foods]
+        food_lunch = food_names[0] if food_names else "authentic regional cuisine"
+        food_dinner = food_names[1] if len(food_names) > 1 else "local market food trail"
+
+        if attr_count >= 2:
             half = max(1, attr_count // 2)
             day1_spots = ", ".join([a["name"] for a in attractions[:half]])
-            day2_spots = ", ".join([a["name"] for a in attractions[half:attr_count]]) if attr_count > half else "local market exploration and scenic sunset viewpoints"
-            
+            day2_spots = ", ".join([a["name"] for a in attractions[half:]])
+
             itinerary_days = {
-                "day_1": f"Arrival from {orig} ➔ Hotel Check-in ➔ Explore {day1_spots} ➔ Evening leisure at local market.",
-                "day_2": f"Morning sightseeing at {day2_spots} ➔ Authentic local lunch ➔ Souvenir shopping & return journey to {orig}."
+                "day_1": f"Arrival from {orig} ➔ Hotel Check-in ➔ Explore {day1_spots} ➔ Enjoy authentic lunch ({food_lunch}) ➔ Evening sunset view & leisure walk at local promenade.",
+                "day_2": f"Morning sightseeing at {day2_spots} ➔ Famous street food trail ({food_dinner}) ➔ Traditional bazaar & handicraft shopping ➔ Return commute back to {orig}."
             }
         else:
             itinerary_days = {
-                "day_1": f"Depart {orig} ➔ Check-in at {dest} ➔ Main city attractions & cultural spots ➔ Evening sunset view.",
-                "day_2": f"Heritage walk & panoramic viewpoints ➔ Authentic local food tour ➔ Departure back to {orig}."
+                "day_1": f"Depart {orig} ➔ Check-in at {dest} ➔ Main city heritage sites & scenic viewpoints ➔ Evening food trail ({food_lunch}).",
+                "day_2": f"Cultural tour & historical landmarks ➔ Authentic lunch ({food_dinner}) ➔ Local shopping & departure back to {orig}."
             }
 
         # -------------------------------------------------------------
@@ -1426,17 +1609,17 @@ class TripPlannerTool(BaseTool):
             "budget": {
                 "tier": "🎒 Budget / Backpacker",
                 "cost_per_person": f"₹{1200 * days + int(fuel_est / max(travelers, 2))}",
-                "includes": f"Shared public transit/bus, budget dharamshala/homestay (₹600–₹1,000/night), local street food & regular entry tickets."
+                "includes": f"Shared public transit/bus, budget homestay/hostel (₹700–₹1,200/night), local street delicacies & entry passes."
             },
             "moderate": {
                 "tier": "🚗 Moderate / Family Comfort",
-                "cost_per_person": f"₹{2400 * days + int(taxi_est / travelers)}",
-                "includes": f"Private AC cab/self-drive, 3-star hotel (₹2,200–₹3,200/night), multi-cuisine dining & guided sightseeing."
+                "cost_per_person": f"₹{2500 * days + int(taxi_est / travelers)}",
+                "includes": f"Private AC cab/self-drive, 3-star boutique hotel (₹2,200–₹3,500/night), multi-cuisine dining & guided sightseeing."
             },
             "luxury": {
                 "tier": "👑 Luxury & Heritage Experience",
-                "cost_per_person": f"₹{5500 * days + int(taxi_est * 1.5 / travelers)}",
-                "includes": f"Premium SUV cab, 4/5-star luxury resort stay (₹5,000–₹9,000/night), fine dining & VIP darshan/entry passes."
+                "cost_per_person": f"₹{5800 * days + int(taxi_est * 1.5 / travelers)}",
+                "includes": f"Premium SUV cab, 4/5-star luxury resort stay (₹5,000–₹9,500/night), fine dining & VIP darshan/entry passes."
             }
         }
 
