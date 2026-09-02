@@ -461,25 +461,39 @@ class AutonomousHeuristicPlanner(BasePlanner):
                     if obs.get("success") and obs.get("results"):
                         results_list = []
                         for idx, r in enumerate(obs.get("results", []), 1):
-                            results_list.append(f"{idx}. **[{r.get('title')}]({r.get('url')})**\n   {r.get('snippet')}")
+                            title = r.get("title", "Result")
+                            url = r.get("url", "#")
+                            snippet = r.get("snippet", "No description available.")
+                            results_list.append(
+                                f"### {idx}. {title}\n"
+                                f"• **Key Details / Highlights**: {snippet}\n"
+                                f"• 🔗 **For More Details**: [{title}]({url})"
+                            )
                         answer_parts.append(
-                            f"🌐 **Live Web Search Results for '{obs.get('query')}'**\n"
+                            f"🌐 **Key Insights & Information for '{obs.get('query')}'**\n\n"
                             + "\n\n".join(results_list)
                         )
                     else:
                         query_val = obs.get("query", "Search Query")
                         answer_parts.append(
-                            f"🌐 **Live Web Search Results for '{query_val}'**\n"
-                            f"• **Topic**: Live web information retrieved.\n"
-                            f"• **Direct Link**: [Search on Web](https://duckduckgo.com/?q={urllib.parse.quote(query_val)})"
+                            f"🌐 **Information for '{query_val}'**\n"
+                            f"• **Summary**: Key live web data retrieved.\n"
+                            f"• 🔗 **For More Details**: [Search live source](https://duckduckgo.com/?q={urllib.parse.quote(query_val)})"
                         )
 
                 elif act == "wikipedia_search" and obs.get("success"):
                     wiki_list = []
                     for idx, r in enumerate(obs.get("results", []), 1):
-                        wiki_list.append(f"### {idx}. [{r.get('title')}]({r.get('url')})\n{r.get('extract')}")
+                        title = r.get("title", "Topic")
+                        url = r.get("url", "#")
+                        extract = r.get("extract", "")
+                        wiki_list.append(
+                            f"### {idx}. {title}\n"
+                            f"{extract}\n\n"
+                            f"• 🔗 **For More Details**: [Read Full Article on Wikipedia]({url})"
+                        )
                     answer_parts.append(
-                        f"📚 **Wikipedia Online Knowledge Summary**\n"
+                        f"📚 **Comprehensive Topic Overview**\n\n"
                         + "\n\n".join(wiki_list)
                     )
 
@@ -619,11 +633,14 @@ Available Live Tools:
 
 Core Directives:
 1. ALWAYS use the live tools (`google_maps`, `weather_forecast`, `web_search`, `wikipedia_search`, `fetch_web_page`, `trip_planner`, `calculator`, `python_interpreter`) to obtain real, up-to-date data.
-2. DO NOT make up fake distances or fake facts when tools are available.
-3. For travel plans: Use `google_maps` for live routing/distance, `weather_forecast` for climate, and `trip_planner` to synthesize dynamic sightseeing, hotels, food, and budgets.
-4. For web search or general queries: Use `web_search` and `wikipedia_search`.
-5. For web URLs: Use `fetch_web_page`.
-6. For math and code: Use `calculator` and `python_interpreter`.
+2. Structure all answers using the 'MAIN DATA + FOR MORE DETAILS LINK' format:
+   - Provide the key direct facts, highlights, timings, descriptions, numbers, and summaries directly in the message.
+   - Attach reference links at the end of items using: `🔗 **For More Details**: [Source Name](URL)` so the user can explore further if desired.
+3. For travel & places queries: Provide full sightseeing breakdowns with place names, historical importance, timings, entry fees, key attractions, food recommendations, and map/source links.
+4. For travel plans: Use `google_maps` for live routing/distance, `weather_forecast` for climate, and `trip_planner` to synthesize dynamic sightseeing, hotels, food, and budgets.
+5. For web search or general queries: Use `web_search` and `wikipedia_search`, synthesize the direct information clearly, and add relevant source links for further reading.
+6. For web URLs: Use `fetch_web_page`.
+7. For math and code: Use `calculator` and `python_interpreter`.
 
 Strict Output Format:
 If you need to use a tool, respond ONLY with:
@@ -633,7 +650,7 @@ Action Input: <valid JSON dictionary with parameters>
 
 If you have enough information to fulfill the request, respond ONLY with:
 Thought: <final reflection>
-Final Answer: <rich, beautifully structured markdown response incorporating live tool observations>
+Final Answer: <rich, beautifully structured markdown response with complete direct details, highlights, facts, and 'For More Details' reference links>
 """
 
         messages = [
