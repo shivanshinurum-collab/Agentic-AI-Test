@@ -55,12 +55,12 @@ class AIModelService:
         # Expanded sentiment scoring with punctuation stripping
         pos_words = {
             "good", "great", "excellent", "awesome", "fast", "love", "loved", "lovely",
-            "like", "liked", "best", "happy", "fantastic", "amazing", "wonderful",
-            "super", "brilliant", "helpful", "blazing", "smooth", "perfect"
+            "like", "liked", "best", "happy", "fantastic", "amazing", "wonderful", "wonderfully",
+            "super", "brilliant", "helpful", "blazing", "smooth", "perfect", "perfectly", "positive"
         }
         neg_words = {
             "bad", "slow", "error", "poor", "hate", "hated", "issue", "worst", "bug",
-            "terrible", "horrible", "awful", "failed", "failure", "broken"
+            "terrible", "horrible", "awful", "failed", "failure", "broken", "negative"
         }
         
         raw_words = text_clean.lower().split()

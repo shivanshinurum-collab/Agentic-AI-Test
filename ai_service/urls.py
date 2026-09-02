@@ -9,6 +9,7 @@ from .views import (
     AgentToolsView,
     AgentMemoryView,
     AgentDashboardView,
+    ChatView,
 )
 
 urlpatterns = [
@@ -27,4 +28,7 @@ urlpatterns = [
     path('agent/memory/', AgentMemoryView.as_view(), name='agent-memory'),
     path('agent/dashboard/', AgentDashboardView.as_view(), name='agent-dashboard'),
     path('agent/', AgentDashboardView.as_view(), name='agent-dashboard-root'),
+
+    # ChatGPT Agentic UI endpoints
+    path('chat/', ChatView.as_view(), name='chat-ui'),
 ]

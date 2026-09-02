@@ -199,3 +199,12 @@ class AgentDashboardView(View):
     """
     def get(self, request):
         return render(request, "ai_service/agent_dashboard.html")
+
+
+class ChatView(View):
+    """
+    Renders the ChatGPT-style Agentic AI conversational interface.
+    """
+    def get(self, request):
+        return render(request, "ai_service/chat.html")
+
