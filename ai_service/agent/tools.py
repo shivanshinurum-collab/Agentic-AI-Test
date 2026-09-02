@@ -368,20 +368,20 @@ class WebSearchTool(BaseTool):
 # =====================================================================
 class WikipediaTool(BaseTool):
     """
-    Queries real-time Wikipedia REST API for deep entity knowledge,
-    historical facts, tourism spots, science, and cultural information.
+    Queries real-time Wikipedia REST and Action APIs for deep entity knowledge,
+    multi-section historical facts, literature epics, science, culture, and geographic summaries.
     """
     name = "wikipedia_search"
-    description = "Searches Wikipedia in real time for comprehensive background, history, attractions, biographies, science, and geographic summaries."
+    description = "Searches Wikipedia in real time for comprehensive background, multi-section history, literature synopsis, characters, science, and encyclopedia details."
     parameters_schema = {
         "query": {
             "type": "string",
-            "description": "Topic, entity, city, landmark, or person to look up on Wikipedia",
+            "description": "Topic, entity, epic, landmark, historical figure, or concept to research on Wikipedia",
             "required": True
         },
         "limit": {
             "type": "integer",
-            "description": "Maximum number of articles to retrieve (default: 3)",
+            "description": "Maximum number of sections/articles to retrieve (default: 3)",
             "required": False
         }
     }
@@ -391,62 +391,109 @@ class WikipediaTool(BaseTool):
         if not query_str:
             return {"success": False, "error": "Query cannot be empty."}
 
-        limit = min(max(1, int(limit)), 5)
+        limit = min(max(1, int(limit)), 6)
         enc_query = urllib.parse.quote(query_str)
 
-        # 1. Try Direct Wikipedia REST Summary API
-        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{enc_query}"
-        summary_data = _http_get_json(summary_url, timeout=4.0)
-        
-        results = []
-        if summary_data and summary_data.get("extract") and summary_data.get("type") != "disambiguation":
-            results.append({
-                "title": summary_data.get("title"),
-                "description": summary_data.get("description", ""),
-                "extract": summary_data.get("extract"),
-                "url": summary_data.get("content_urls", {}).get("desktop", {}).get("page", f"https://en.wikipedia.org/wiki/{enc_query}"),
-                "thumbnail": summary_data.get("thumbnail", {}).get("source") if summary_data.get("thumbnail") else None,
-                "coordinates": summary_data.get("coordinates")
-            })
+        # 1. Resolve Best Title via Wikipedia Search API (handles redirects and variations like 'Honda Company' -> 'Honda')
+        target_title = query_str
+        target_url = f"https://en.wikipedia.org/wiki/{enc_query}"
 
-        # 2. OpenSearch API for related pages
-        if len(results) < limit:
-            try:
-                search_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={enc_query}&limit={limit+2}&namespace=0&format=json"
-                search_data = _http_get_json(search_url, timeout=4.0)
-                if search_data and len(search_data) >= 4:
-                    titles = search_data[1]
-                    descriptions = search_data[2]
-                    urls = search_data[3]
-                    for t, d, u in zip(titles, descriptions, urls):
-                        if any(r["title"].lower() == t.lower() for r in results):
-                            continue
-                        if d and "may refer to:" not in d:
-                            results.append({
-                                "title": t,
-                                "description": "",
-                                "extract": d,
-                                "url": u,
-                                "thumbnail": None,
-                                "coordinates": None
-                            })
-                        if len(results) >= limit:
-                            break
-            except Exception:
-                pass
+        search_api_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={enc_query}&srlimit=3&format=json"
+        search_data = _http_get_json(search_api_url, timeout=5.0)
+        
+        candidate_titles = []
+        if search_data and "query" in search_data and "search" in search_data["query"] and len(search_data["query"]["search"]) > 0:
+            candidate_titles = [item["title"] for item in search_data["query"]["search"]]
+            target_title = candidate_titles[0]
+            target_url = f"https://en.wikipedia.org/wiki/{urllib.parse.quote(target_title)}"
+        else:
+            # Fallback to OpenSearch
+            opensearch_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={enc_query}&limit=3&namespace=0&format=json"
+            opensearch_data = _http_get_json(opensearch_url, timeout=4.0)
+            if opensearch_data and len(opensearch_data) >= 4 and len(opensearch_data[1]) > 0:
+                target_title = opensearch_data[1][0]
+                target_url = opensearch_data[3][0]
+
+        enc_target = urllib.parse.quote(target_title)
+
+        # 2. Fetch Full Structured Extracts (Intro + Sections) from Wikipedia API with redirects=1
+        query_api_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&piprop=thumbnail&pithumbsize=600&explaintext=1&redirects=1&titles={enc_target}&format=json"
+        api_data = _http_get_json(query_api_url, timeout=6.0)
+
+        results = []
+        if api_data and "query" in api_data and "pages" in api_data["query"]:
+            pages = api_data["query"]["pages"]
+            for pid, p in pages.items():
+                if pid == "-1":
+                    continue
+                
+                title = p.get("title", target_title)
+                full_text = p.get("extract", "")
+                thumbnail = p.get("thumbnail", {}).get("source") if p.get("thumbnail") else None
+
+                if not full_text:
+                    continue
+
+                # Parse Intro & Major Sections
+                raw_sections = re.split(r"\n==\s*([^=]+?)\s*==\n", full_text)
+                intro_lead = raw_sections[0].strip()
+
+                parsed_sections = []
+                skip_sections = ["see also", "references", "further reading", "external links", "notes", "citations", "sources", "explanatory notes", "facilities (partial list)", "notes and references"]
+
+                for i in range(1, len(raw_sections), 2):
+                    sec_title = raw_sections[i].strip()
+                    sec_body = raw_sections[i+1].strip() if i+1 < len(raw_sections) else ""
+                    if sec_title.lower() in skip_sections or not sec_body:
+                        continue
+                    
+                    # Clean markdown subheadings
+                    clean_body = re.sub(r"===+\s*(.*?)\s*===+", r"#### \1", sec_body).strip()
+                    # Retain rich substantial content (up to 3500 chars per section)
+                    trimmed_body = clean_body[:3500] if len(clean_body) > 3500 else clean_body
+                    parsed_sections.append({
+                        "section_title": sec_title,
+                        "content": trimmed_body
+                    })
+
+                results.append({
+                    "title": title,
+                    "lead_summary": intro_lead,
+                    "sections": parsed_sections[:8],
+                    "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title)}",
+                    "thumbnail": thumbnail
+                })
+
+        # 3. Fallback to summary API if query API was empty
+        if not results:
+            summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{enc_query}"
+            summary_data = _http_get_json(summary_url, timeout=4.0)
+            if summary_data and summary_data.get("extract") and summary_data.get("type") != "disambiguation":
+                results.append({
+                    "title": summary_data.get("title"),
+                    "lead_summary": summary_data.get("extract"),
+                    "sections": [],
+                    "url": summary_data.get("content_urls", {}).get("desktop", {}).get("page", target_url),
+                    "thumbnail": summary_data.get("thumbnail", {}).get("source") if summary_data.get("thumbnail") else None
+                })
 
         if not results:
             return {
                 "success": False,
                 "query": query_str,
-                "error": f"No Wikipedia articles found for '{query_str}'."
+                "error": f"No detailed Wikipedia encyclopedia article found for '{query_str}'."
             }
 
+        primary_article = results[0]
         return {
             "success": True,
             "query": query_str,
-            "results_count": len(results),
-            "results": results[:limit]
+            "title": primary_article["title"],
+            "url": primary_article["url"],
+            "lead_summary": primary_article["lead_summary"],
+            "sections": primary_article["sections"],
+            "thumbnail": primary_article.get("thumbnail"),
+            "results": results
         }
 
 
@@ -1219,6 +1266,51 @@ class TripPlannerTool(BaseTool):
         }
     }
 
+    def _is_banned_content(self, title: str, desc: str) -> bool:
+        """Algorithmic NLP filter to reject author bylines, contributor bios, and website boilerplate."""
+        if not title or len(title.strip()) < 3:
+            return True
+        t_low = title.lower().strip()
+        d_low = desc.lower().strip() if desc else ""
+
+        # 1. Author / contributor / photographer byline patterns
+        if re.search(r'^(by\s+|written\s+by|author|editor|photo\s+by|contributor|about\s+the\s+author)', t_low):
+            return True
+        if any(w in d_low for w in [
+            "is a freelance writer", "is a travel writer", "is a contributor", "is an author",
+            "is a journalist", "lives in", "follow him", "follow her", "instagram.com",
+            "twitter.com", "editorial director", "contributes regularly to", "written by"
+        ]):
+            return True
+
+        # 2. Website navigation & listicle noise
+        noise_keywords = [
+            'table of', 'best time', 'how to reach', 'things to do', 'faq', 'conclusion',
+            'read more', 'related', 'share', 'overview', 'disclaimer', 'advertisement', 'sponsored',
+            'comment', 'subscribe', 'sidebar', 'newsletter', 'cookie consent', 'privacy policy',
+            'terms of', 'tripadvisor', 'what to eat', 'why street food', 'heartbeat of', 'why you should',
+            'love this recipe', 'introduction', 'pro tip', 'key highlights', 'final thoughts'
+        ]
+        if any(n in t_low for n in noise_keywords):
+            return True
+
+        # 3. Two-word person names without landmark/hotel/food nouns
+        words = title.strip().split()
+        if len(words) == 2 and all(w[0].isupper() for w in words if w):
+            property_nouns = {
+                'hotel', 'resort', 'palace', 'inn', 'suites', 'homestay', 'haveli', 'lodge',
+                'stay', 'cottage', 'cottages', 'villas', 'villa', 'boutique', 'manor', 'residency',
+                'dharamshala', 'hostel', 'camp', 'house', 'guesthouse', 'retreat', 'motel',
+                'temple', 'mandir', 'fort', 'falls', 'fall', 'lake', 'cave', 'caves', 'ghat',
+                'valley', 'park', 'sanctuary', 'museum', 'garden', 'beach', 'bazaar', 'chowk',
+                'market', 'thali', 'poha', 'chaat', 'curry', 'view', 'point', 'tomb', 'masjid'
+            }
+            if not any(pn in t_low for pn in property_nouns):
+                if any(b in d_low for b in ["writer", "author", "blogger", "journalist", "photographer", "editor"]):
+                    return True
+
+        return False
+
     def _extract_items_from_web_article(self, url: str, max_items: int = 6) -> List[Dict[str, str]]:
         """Deeply extracts named sections, headings, and detailed descriptions from travel and culinary articles."""
         if not url or not url.startswith("http"):
@@ -1236,15 +1328,6 @@ class TripPlannerTool(BaseTool):
 
             results = []
             seen = set()
-            ignore_keywords = [
-                'table of', 'best time', 'how to reach', 'things to do', 'faq', 'conclusion',
-                'read more', 'related', 'share', 'overview', 'author', 'disclaimer', 'hotels',
-                'restaurants', 'transport', 'comment', 'subscribe', 'sidebar', 'why you must',
-                'pro tip', 'best places', 'key highlights', 'newsletter', 'cookie consent',
-                'privacy policy', 'terms of', 'tripadvisor', 'advertisement', 'sponsored',
-                'what to eat', 'why street food', 'the heartbeat of', 'heartbeat of', 'why you should',
-                'best street food in', 'food culture', 'history of', 'love this recipe', 'introduction'
-            ]
 
             for tag, title_html, text in matches:
                 t = html.unescape(re.sub(r'<[^>]+>', '', title_html)).strip()
@@ -1254,9 +1337,9 @@ class TripPlannerTool(BaseTool):
                 desc = html.unescape(re.sub(r'\s+', ' ', text)).strip()
 
                 lower = t_clean.lower()
-                if any(bad in lower for bad in ignore_keywords):
+                if self._is_banned_content(t_clean, desc):
                     continue
-                if 3 <= len(t_clean) <= 50 and len(desc) >= 30 and lower not in seen:
+                if 3 <= len(t_clean) <= 55 and len(desc) >= 30 and lower not in seen:
                     seen.add(lower)
                     results.append({
                         "name": t_clean,
@@ -1275,8 +1358,8 @@ class TripPlannerTool(BaseTool):
         seen = set()
         dest_clean = dest.strip().title()
 
-        # 1. Deep Web Scraper Extraction on top travel guide articles
-        search_res = search_tool.execute(query=f"top places to visit in {dest_clean} sightseeing attractions", max_results=4)
+        # 1. Deep Web Scraper Extraction on live travel articles
+        search_res = search_tool.execute(query=f"top places to visit in {dest_clean} sightseeing attractions landmarks", max_results=4)
         for r in search_res.get("results", []):
             url = r.get("url", "")
             if "tripadvisor" in url.lower():
@@ -1285,7 +1368,7 @@ class TripPlannerTool(BaseTool):
             for it in items:
                 name = it["name"]
                 lower = name.lower()
-                if lower not in seen and len(name) >= 3:
+                if not self._is_banned_content(name, it["description"]) and lower not in seen and len(name) >= 3:
                     seen.add(lower)
                     query_enc = urllib.parse.quote(f"{name} {dest_clean}")
                     attractions.append({
@@ -1299,23 +1382,14 @@ class TripPlannerTool(BaseTool):
             if len(attractions) >= 4:
                 break
 
-        # 2. Wikipedia Landmark & Section Extraction Fallback
+        # 2. Wikipedia Landmark Extraction Fallback
         if len(attractions) < 3:
             candidate_pages = [f"Tourism in {dest_clean}", f"List of tourist attractions in {dest_clean}", dest_clean]
-            ignore_sections = {
-                'history', 'geography', 'climate', 'demographics', 'economy', 'administration',
-                'transport', 'transportation', 'education', 'media', 'sports', 'references',
-                'external links', 'see also', 'further reading', 'notable people', 'sister cities',
-                'government', 'infrastructure', 'civic administration', 'etymology', 'access',
-                'town', 'biosphere', 'wildlife', 'film location', 'water activities', 'economic impact'
-            }
-
             for p in candidate_pages:
                 try:
                     url = f"https://en.wikipedia.org/w/api.php?action=parse&page={urllib.parse.quote(p)}&prop=sections|links&format=json"
                     data = _http_get_json(url, timeout=3.5)
                     if data and "parse" in data:
-                        # Extract landmark links
                         for l in data["parse"].get("links", []):
                             name = l.get("*", "")
                             lower = name.lower()
@@ -1336,13 +1410,13 @@ class TripPlannerTool(BaseTool):
                 if len(attractions) >= 4:
                     break
 
-        # 3. Final Fallback: Query Wikipedia entity summaries for top landmarks
+        # 3. Final Fallback: Wikipedia entity summaries
         if len(attractions) < 2:
             wiki_search = wiki_tool.execute(query=f"{dest_clean} landmark monument temple palace", limit=3)
             if wiki_search.get("success") and wiki_search.get("results"):
                 for w in wiki_search["results"]:
                     name = w.get("title", "")
-                    if name.lower() not in seen and name.lower() != dest_clean.lower():
+                    if name.lower() not in seen and name.lower() != dest_clean.lower() and not self._is_banned_content(name, w.get("extract", "")):
                         seen.add(name.lower())
                         query_enc = urllib.parse.quote(f"{name} {dest_clean}")
                         attractions.append({
@@ -1370,7 +1444,7 @@ class TripPlannerTool(BaseTool):
             for it in items:
                 name = it["name"]
                 lower = name.lower()
-                if lower not in seen and len(name) >= 3:
+                if not self._is_banned_content(name, it["description"]) and lower not in seen and len(name) >= 3:
                     seen.add(lower)
                     famous_foods.append({
                         "name": name,
@@ -1410,10 +1484,17 @@ class TripPlannerTool(BaseTool):
         return famous_foods[:4]
 
     def _get_real_stays(self, dest: str, search_tool: WebSearchTool, maps_tool: GoogleMapsTool) -> List[Dict[str, Any]]:
-        """Extracts real hotel accommodations categorized into Luxury, Mid-Range, and Budget tiers."""
+        """Extracts real verified hotel accommodations categorized into Luxury, Mid-Range, and Budget tiers."""
         dest_clean = dest.strip().title()
         hotel_names = []
         seen = set()
+
+        hotel_indicators = {
+            'hotel', 'resort', 'retreat', 'palace', 'inn', 'suites', 'homestay', 'haveli',
+            'lodge', 'stay', 'cottage', 'cottages', 'villas', 'villa', 'boutique', 'mpt',
+            'grand', 'heritage', 'club', 'residency', 'guesthouse', 'guest house', 'motel',
+            'dharamshala', 'ashram', 'hostel', 'camp', 'tents', 'glamping', 'manor', 'chateau', 'b&b'
+        }
 
         # 1. Try Google Maps / OpenStreetMap Places lookup
         places_hotel = maps_tool.execute(action="places_search", query=f"hotels in {dest_clean}")
@@ -1421,13 +1502,13 @@ class TripPlannerTool(BaseTool):
             for h in places_hotel["places"][:8]:
                 h_name = h.get("name", "")
                 lower = h_name.lower()
-                # Filter out generic listicle article titles
-                if lower not in seen and len(h_name) > 3 and not any(bad in lower for bad in ["10 best", "top 10", "tripadvisor", "resorts 202", "cheap accommodation", "hotels in"]):
-                    seen.add(lower)
-                    rating_str = f" (⭐ {h.get('rating')})" if h.get("rating") else ""
-                    hotel_names.append(f"{h_name}{rating_str}")
+                if not self._is_banned_content(h_name, "") and lower not in seen and len(h_name) > 3:
+                    if any(hi in lower for hi in hotel_indicators) or "hotel" in lower:
+                        seen.add(lower)
+                        rating_str = f" (⭐ {h.get('rating')})" if h.get("rating") else ""
+                        hotel_names.append(f"{h_name}{rating_str}")
 
-        # 2. Try Deep Web Scraper for real hotels
+        # 2. Try Deep Web Scraper for real verified hotels
         if len(hotel_names) < 3:
             web_hotel = search_tool.execute(query=f"best luxury and boutique hotels in {dest_clean}", max_results=3)
             for r in web_hotel.get("results", []):
@@ -1435,30 +1516,31 @@ class TripPlannerTool(BaseTool):
                 for it in items:
                     name = it["name"]
                     lower = name.lower()
-                    if lower not in seen and 3 < len(name) < 45 and not any(bad in lower for bad in ["10 best", "top 10", "tripadvisor", "resorts 202"]):
-                        seen.add(lower)
-                        hotel_names.append(name)
-                    if len(hotel_names) >= 6:
-                        break
+                    if not self._is_banned_content(name, it["description"]) and lower not in seen and 3 < len(name) < 45:
+                        if any(hi in lower for hi in hotel_indicators):
+                            seen.add(lower)
+                            hotel_names.append(name)
+                        if len(hotel_names) >= 6:
+                            break
 
         # Tier breakdown
-        if len(hotel_names) >= 4:
+        if len(hotel_names) >= 3:
             mid_split = max(1, len(hotel_names) // 2)
             return [
                 {
-                    "category": "👑 Luxury Resorts & Premium 5-Star Stays",
+                    "category": "👑 Luxury Resorts & Premium Stays",
                     "price_range": "₹4,500 – ₹10,500 / night",
                     "options": hotel_names[:mid_split]
                 },
                 {
                     "category": "🏨 Mid-Range & Comfortable Boutique Hotels",
                     "price_range": "₹2,000 – ₹3,800 / night",
-                    "options": hotel_names[mid_split:mid_split+3]
+                    "options": hotel_names[mid_split:]
                 },
                 {
                     "category": "🎒 Budget Stays, Hostels & Homestays",
                     "price_range": "₹700 – ₹1,600 / night",
-                    "options": [f"Guesthouses, Hostels & Lodges near central {dest_clean}", f"State Tourism Cottages & Dharamshalas in {dest_clean}"]
+                    "options": [f"Guesthouses, Hostels & Lodges near central {dest_clean}", f"State Tourism Board Cottages & Dharamshalas in {dest_clean}"]
                 }
             ]
 
@@ -1575,28 +1657,39 @@ class TripPlannerTool(BaseTool):
         famous_foods = self._get_real_foods(dest, search_tool, wiki_tool)
 
         # -------------------------------------------------------------
-        # 7. DYNAMIC DAY-WISE ITINERARY GENERATION
+        # 7. DYNAMIC DAY-WISE HOUR-BY-HOUR ITINERARY GENERATION
         # -------------------------------------------------------------
-        itinerary_days = {}
-        attr_count = len(attractions)
-        food_names = [f["name"] for f in famous_foods]
-        food_lunch = food_names[0] if food_names else "authentic regional cuisine"
-        food_dinner = food_names[1] if len(food_names) > 1 else "local market food trail"
+        attr_names = [a["name"] for a in attractions]
+        a1 = attr_names[0] if len(attr_names) > 0 else f"{dest} City Center"
+        a2 = attr_names[1] if len(attr_names) > 1 else f"{dest} Scenic Viewpoint"
+        a3 = attr_names[2] if len(attr_names) > 2 else f"{dest} Heritage Landmark"
+        a4 = attr_names[3] if len(attr_names) > 3 else f"{dest} Cultural Market"
 
-        if attr_count >= 2:
-            half = max(1, attr_count // 2)
-            day1_spots = ", ".join([a["name"] for a in attractions[:half]])
-            day2_spots = ", ".join([a["name"] for a in attractions[half:]])
+        f1 = famous_foods[0]["name"] if len(famous_foods) > 0 else "Authentic regional thali"
+        f2 = famous_foods[1]["name"] if len(famous_foods) > 1 else "Famous local street food"
 
-            itinerary_days = {
-                "day_1": f"Arrival from {orig} ➔ Hotel Check-in ➔ Explore {day1_spots} ➔ Enjoy authentic lunch ({food_lunch}) ➔ Evening sunset view & leisure walk at local promenade.",
-                "day_2": f"Morning sightseeing at {day2_spots} ➔ Famous street food trail ({food_dinner}) ➔ Traditional bazaar & handicraft shopping ➔ Return commute back to {orig}."
+        itinerary_days = {
+            "day_1": {
+                "title": f"Arrival, Check-in & Exploring Iconic Landmarks ({a1} & {a2})",
+                "schedule": [
+                    f"**07:00 AM – 10:30 AM**: Depart from {orig} via highway route ➔ Scenic morning drive ➔ Arrival & Hotel Check-in at {dest}.",
+                    f"**11:00 AM – 01:30 PM**: Sightseeing at **{a1}** (explore historical & scenic highlights, photography).",
+                    f"**01:30 PM – 02:45 PM**: Traditional lunch enjoying **{f1}** at recommended local dining spots.",
+                    f"**03:30 PM – 06:30 PM**: Visit **{a2}** (scenic views, heritage walk, and golden-hour sunset point).",
+                    f"**07:30 PM – 09:30 PM**: Evening market stroll ➔ Dinner experiencing **{f2}** ➔ Overnight stay at hotel."
+                ]
+            },
+            "day_2": {
+                "title": f"Cultural Discovery ({a3} & {a4}) & Evening Return",
+                "schedule": [
+                    f"**06:30 AM – 08:30 AM**: Sunrise point / morning nature walk ➔ Hearty breakfast at the hotel.",
+                    f"**09:00 AM – 12:30 PM**: Explore **{a3}** (architectural details, guided museum/temple walk).",
+                    f"**01:00 PM – 02:15 PM**: Regional lunch at local eateries.",
+                    f"**02:30 PM – 04:30 PM**: Visit **{a4}** & local bazaar for authentic handicrafts and souvenirs.",
+                    f"**05:00 PM Onwards**: Check-out & commute journey back to {orig}."
+                ]
             }
-        else:
-            itinerary_days = {
-                "day_1": f"Depart {orig} ➔ Check-in at {dest} ➔ Main city heritage sites & scenic viewpoints ➔ Evening food trail ({food_lunch}).",
-                "day_2": f"Cultural tour & historical landmarks ➔ Authentic lunch ({food_dinner}) ➔ Local shopping & departure back to {orig}."
-            }
+        }
 
         # -------------------------------------------------------------
         # 8. REALISTIC DYNAMIC BUDGET CALCULATION

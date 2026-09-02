@@ -1,12 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agentic AI - ChatGPT Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
     <style>
         :root {
             --bg-body: #0d0e12;
@@ -169,6 +172,7 @@
         .chat-history-container::-webkit-scrollbar {
             width: 4px;
         }
+
         .chat-history-container::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.1);
             border-radius: 4px;
@@ -197,7 +201,8 @@
             position: relative;
         }
 
-        .history-item:hover, .history-item.active {
+        .history-item:hover,
+        .history-item.active {
             background-color: var(--bg-sidebar-hover);
             color: var(--text-primary);
         }
@@ -418,8 +423,17 @@
         }
 
         @keyframes pulse-dot-anim {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.8); }
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.4;
+                transform: scale(0.8);
+            }
         }
 
         .header-btn {
@@ -456,6 +470,7 @@
         .chat-messages::-webkit-scrollbar {
             width: 6px;
         }
+
         .chat-messages::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.12);
             border-radius: 6px;
@@ -471,8 +486,15 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .message-avatar {
@@ -659,23 +681,36 @@
         }
 
         /* ===== MARKDOWN & CODE STYLES ===== */
-        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3 {
             margin: 1rem 0 0.5rem 0;
             font-weight: 700;
             color: var(--text-primary);
         }
-        .markdown-body h1 { font-size: 1.35rem; }
-        .markdown-body h2 { font-size: 1.15rem; }
-        .markdown-body h3 { font-size: 1.02rem; }
+
+        .markdown-body h1 {
+            font-size: 1.35rem;
+        }
+
+        .markdown-body h2 {
+            font-size: 1.15rem;
+        }
+
+        .markdown-body h3 {
+            font-size: 1.02rem;
+        }
 
         .markdown-body p {
             margin-bottom: 0.8rem;
         }
+
         .markdown-body p:last-child {
             margin-bottom: 0;
         }
 
-        .markdown-body ul, .markdown-body ol {
+        .markdown-body ul,
+        .markdown-body ol {
             margin: 0.5rem 0 0.8rem 1.4rem;
             display: flex;
             flex-direction: column;
@@ -878,8 +913,15 @@
         }
 
         @keyframes blink-cursor {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
         }
 
         /* ===== WELCOME / EMPTY STATE ===== */
@@ -1240,8 +1282,15 @@
         }
 
         @keyframes slideUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* Responsive Mobile Layout */
@@ -1254,9 +1303,11 @@
                 transform: translateX(-100%);
                 box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
             }
+
             .sidebar.mobile-open {
                 transform: translateX(0);
             }
+
             .sidebar-backdrop {
                 position: fixed;
                 inset: 0;
@@ -1264,18 +1315,22 @@
                 z-index: 35;
                 display: none;
             }
+
             .sidebar-backdrop.active {
                 display: block;
             }
+
             .chat-header {
                 padding: 0 1rem;
             }
+
             .chat-input-wrapper {
                 padding: 0 1rem 1rem 1rem;
             }
         }
     </style>
 </head>
+
 <body>
 
     <!-- Mobile Backdrop -->
@@ -1326,7 +1381,7 @@
                 <span>⚙️</span>
                 <span>Settings</span>
             </button>
-            
+
             <div class="user-pill">
                 <div class="user-avatar">AI</div>
                 <div class="user-info">
@@ -1376,29 +1431,38 @@
                 <div class="welcome-sparkle-box">✨</div>
                 <h1 class="welcome-title">How can I help you today?</h1>
                 <p class="welcome-subtitle">
-                    Autonomous Agentic AI powered by local GGUF, PyTorch Apple Silicon MPS GPU, and dynamic ReAct tool-calling.
+                    Autonomous Agentic AI powered by local GGUF, PyTorch Apple Silicon MPS GPU, and dynamic ReAct
+                    tool-calling.
                 </p>
 
                 <div class="prompt-grid">
-                    <div class="prompt-card" onclick="setPromptAndSend('Plan a 2-day trip from Indore to Pachmarhi with live route, weather, and budget')">
+                    <div class="prompt-card"
+                        onclick="setPromptAndSend('Plan a 2-day trip from Indore to Pachmarhi with live route, weather, and budget')">
                         <div class="prompt-card-icon">🧭</div>
                         <div class="prompt-card-title">Dynamic Master Trip Plan</div>
-                        <div class="prompt-card-desc">Live Google Maps route, Open-Meteo weather, top sights & calculated budget.</div>
+                        <div class="prompt-card-desc">Live Google Maps route, Open-Meteo weather, top sights &
+                            calculated budget.</div>
                     </div>
-                    <div class="prompt-card" onclick="setPromptAndSend('What is the live weather, temperature, and 5-day forecast for Paris?')">
+                    <div class="prompt-card"
+                        onclick="setPromptAndSend('What is the live weather, temperature, and 5-day forecast for Paris?')">
                         <div class="prompt-card-icon">🌦️</div>
                         <div class="prompt-card-title">Live Global Weather</div>
-                        <div class="prompt-card-desc">Real-time temperature, humidity, wind & meteorological forecasts worldwide.</div>
+                        <div class="prompt-card-desc">Real-time temperature, humidity, wind & meteorological forecasts
+                            worldwide.</div>
                     </div>
-                    <div class="prompt-card" onclick="setPromptAndSend('Driving directions, distance, and duration from Mumbai to Pune')">
+                    <div class="prompt-card"
+                        onclick="setPromptAndSend('Driving directions, distance, and duration from Mumbai to Pune')">
                         <div class="prompt-card-icon">🗺️</div>
                         <div class="prompt-card-title">Google Maps Navigation</div>
-                        <div class="prompt-card-desc">Accurate road distance, driving duration, and turn-by-turn routing preview.</div>
+                        <div class="prompt-card-desc">Accurate road distance, driving duration, and turn-by-turn routing
+                            preview.</div>
                     </div>
-                    <div class="prompt-card" onclick="setPromptAndSend('Search the web for the latest breakthroughs in Quantum Computing and AI')">
+                    <div class="prompt-card"
+                        onclick="setPromptAndSend('Search the web for the latest breakthroughs in Quantum Computing and AI')">
                         <div class="prompt-card-icon">🌐</div>
                         <div class="prompt-card-title">Live Web & Knowledge Search</div>
-                        <div class="prompt-card-desc">Real-time internet search and Wikipedia encyclopedia retrieval.</div>
+                        <div class="prompt-card-desc">Real-time internet search and Wikipedia encyclopedia retrieval.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1408,12 +1472,9 @@
         <!-- Input Area (Fixed Bottom) -->
         <footer class="chat-input-wrapper">
             <div class="input-pill-container">
-                <textarea 
-                    class="textarea-box" 
-                    id="chatInput" 
+                <textarea class="textarea-box" id="chatInput"
                     placeholder="Message Agentic AI... (Press Enter to send, Shift+Enter for new line)"
-                    rows="1"
-                ></textarea>
+                    rows="1"></textarea>
 
                 <div class="input-action-bar">
                     <div class="input-tools-left">
@@ -1421,7 +1482,8 @@
                             <span>🛠️</span>
                             <span>Agent Tools: ON</span>
                         </button>
-                        <button class="btn-input-tool" id="btnToggleDeepReasoning" title="Enable deep multi-step reasoning iterations">
+                        <button class="btn-input-tool" id="btnToggleDeepReasoning"
+                            title="Enable deep multi-step reasoning iterations">
                             <span>🧠</span>
                             <span>Deep ReAct</span>
                         </button>
@@ -1500,7 +1562,8 @@
                 </div>
 
                 <div class="setting-row">
-                    <button class="header-btn" style="width: 100%; justify-content: center; padding: 0.65rem;" onclick="saveSettings()">
+                    <button class="header-btn" style="width: 100%; justify-content: center; padding: 0.65rem;"
+                        onclick="saveSettings()">
                         Save Settings
                     </button>
                 </div>
@@ -1662,7 +1725,7 @@
         }
 
         // Quick Prompt Card Handler
-        window.setPromptAndSend = function(promptText) {
+        window.setPromptAndSend = function (promptText) {
             chatInput.value = promptText;
             btnSend.disabled = false;
             autoResizeTextarea();
@@ -1922,7 +1985,7 @@
         }
 
         // Toggle Reasoning Box
-        window.toggleReasoning = function(el, evt) {
+        window.toggleReasoning = function (el, evt) {
             if (evt.target.closest('.trace-observation-box') || evt.target.closest('button')) return;
             el.classList.toggle('open');
         };
@@ -2048,7 +2111,7 @@
         }
 
         // Copy Code Block Handler
-        window.copyCodeBlock = function(codeId, btn) {
+        window.copyCodeBlock = function (codeId, btn) {
             const codeEl = document.getElementById(codeId);
             if (!codeEl) return;
             navigator.clipboard.writeText(codeEl.textContent).then(() => {
@@ -2062,7 +2125,7 @@
         };
 
         // Copy Message Text
-        window.copyMessageText = function(msgId) {
+        window.copyMessageText = function (msgId) {
             const msg = state.messages.find(m => m.id === msgId);
             if (!msg) return;
             navigator.clipboard.writeText(msg.content).then(() => {
@@ -2071,7 +2134,7 @@
         };
 
         // Text-to-Speech
-        window.toggleSpeech = function(msgId) {
+        window.toggleSpeech = function (msgId) {
             if (!('speechSynthesis' in window)) {
                 showToast('Speech synthesis not supported in this browser');
                 return;
@@ -2092,7 +2155,7 @@
         };
 
         // Rate Message
-        window.rateMessage = function(btn, type) {
+        window.rateMessage = function (btn, type) {
             btn.classList.toggle('active');
             showToast(type === 'like' ? 'Thanks for your feedback!' : 'Feedback noted for improvement');
         };
@@ -2153,7 +2216,7 @@
             });
         }
 
-        window.loadConversation = function(convoId) {
+        window.loadConversation = function (convoId) {
             const convo = state.conversations.find(c => c.id === convoId);
             if (!convo) return;
             state.currentSessionId = convo.id;
@@ -2165,7 +2228,7 @@
             }
         };
 
-        window.deleteConversation = function(convoId, evt) {
+        window.deleteConversation = function (convoId, evt) {
             evt.stopPropagation();
             if (confirm('Delete this conversation history?')) {
                 state.conversations = state.conversations.filter(c => c.id !== convoId);
@@ -2267,26 +2330,26 @@
         }
 
         // Modal Helpers
-        window.openModal = function(id) {
+        window.openModal = function (id) {
             document.getElementById(id).classList.add('active');
         };
 
-        window.closeModal = function(id) {
+        window.closeModal = function (id) {
             document.getElementById(id).classList.remove('active');
         };
 
-        window.saveSettings = function() {
+        window.saveSettings = function () {
             state.plannerMode = document.getElementById('settingPlannerMode').value;
             state.maxIterations = parseInt(document.getElementById('settingMaxIterations').value) || 6;
             state.currentSessionId = document.getElementById('settingSessionId').value || state.currentSessionId;
-            
+
             const modeLabels = {
                 'gguf': 'Qwen3-4B (Metal GPU)',
                 'heuristic': 'Autonomous Cognitive',
                 'external_llm': 'External LLM'
             };
             document.getElementById('activeModelLabel').textContent = modeLabels[state.plannerMode] || 'Agentic AI';
-            
+
             closeModal('settingsModal');
             showToast('Settings saved successfully');
         };
@@ -2330,4 +2393,5 @@
         document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
+
 </html>

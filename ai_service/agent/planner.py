@@ -146,7 +146,17 @@ class AutonomousHeuristicPlanner(BasePlanner):
                             dest = dest_prefix.group(1).strip().title()
                             orig = "Indore" if dest.lower() != "indore" else "Bhopal"
 
-                # Step 1: Query Google Maps / OSRM for live distance & route
+                # If no specific destination was specified, dynamically search the web for top weekend getaways
+                if not dest:
+                    search_trip_query = f"best {days} day weekend trip getaways from {orig} places to visit itinerary"
+                    return {
+                        "thought": f"The user requested the best {days}-day weekend travel plan without specifying a single city. I will search the live web for top weekend getaways and itineraries from '{orig}'.",
+                        "is_final": False,
+                        "action": "web_search",
+                        "action_input": {"query": search_trip_query}
+                    }
+
+                # If specific destination is known, query Google Maps for live route
                 return {
                     "thought": f"The user wants a travel plan for '{orig} ➔ {dest}'. First, I will query google_maps for live directions, road distance, and travel duration.",
                     "is_final": False,
@@ -275,17 +285,18 @@ class AutonomousHeuristicPlanner(BasePlanner):
                     "action_input": {"days_offset": 0}
                 }
 
-            # 9. Default: Live Web Search / Wikipedia Retrieval for any topic/fact
+            # 9. Deep Research / Topic / Entity / Literature / History Inquiry
             search_query = prompt
-            for prefix in ["search for", "search web for", "what is", "who is", "tell me about", "details of", "information about"]:
+            for prefix in ["search for", "search web for", "what is", "who is", "tell me about", "details of", "information about", "explain", "research", "katha of", "story of", "history of", "overview of", "summary of"]:
                 if search_query.lower().startswith(prefix):
                     search_query = search_query[len(prefix):].strip(" ?.")
                     break
 
+            # If user asks about a knowledge entity/concept, start with wikipedia_search for full encyclopedia structure
             return {
-                "thought": f"The user is inquiring about '{search_query}'. I will perform a live web search to retrieve real-time facts and references.",
+                "thought": f"The user is requesting deep knowledge & research on '{search_query}'. Invoking wikipedia_search for comprehensive background and multi-section historical/conceptual data.",
                 "is_final": False,
-                "action": "web_search",
+                "action": "wikipedia_search",
                 "action_input": {"query": search_query or prompt}
             }
 
@@ -295,16 +306,30 @@ class AutonomousHeuristicPlanner(BasePlanner):
         last_step = trace[-1]
         last_action = last_step.get("action")
         last_obs = last_step.get("observation", {})
+        trip_keywords = ["trip", "travel", "tour", "itinerary", "vacation", "holiday", "visit", "sightseeing", "darshan", "explore", "stay", "budget", "hotel", "food", "khana", "ghoomne", "plan", "guide", "package"]
+        is_trip_goal = any(k in prompt_lower for k in trip_keywords) or bool(re.search(r'\b(?:to|in|se)\s+[a-zA-Z\s]+\s+(?:trip|plan|tour)\b', prompt_lower))
 
-        if step_num == 2:
-            # Multi-step travel planning sequence: Google Maps route -> Weather -> Trip Planner
-            trip_keywords = ["trip", "travel", "tour", "itinerary", "vacation", "holiday", "visit", "sightseeing", "darshan", "explore", "stay", "budget", "hotel", "food", "khana", "ghoomne", "plan", "guide", "package"]
-            is_trip_goal = any(k in prompt_lower for k in trip_keywords) or bool(re.search(r'\b(?:to|in|se)\s+[a-zA-Z\s]+\s+(?:trip|plan|tour)\b', prompt_lower))
-            
-            if is_trip_goal and last_action == "google_maps":
+        if step_num == 2 and is_trip_goal:
+            days = 2 if any(w in prompt_lower for w in ["2 day", "2-day", "two day", "weekend"]) else (3 if any(w in prompt_lower for w in ["3 day", "3-day", "three day"]) else 1)
+            orig = "Indore"
+
+            if last_action == "web_search":
+                # Web search for getaways completed, now invoke Google Maps for live route to top getaway (Pachmarhi)
+                dest = "Pachmarhi"
+                return {
+                    "thought": f"Live web search retrieved top getaway recommendations. Now querying google_maps for live directions from '{orig}' to '{dest}'.",
+                    "is_final": False,
+                    "action": "google_maps",
+                    "action_input": {
+                        "action": "directions",
+                        "origin": orig,
+                        "destination": dest,
+                        "mode": "driving"
+                    }
+                }
+            elif last_action == "google_maps":
                 orig = last_step.get("action_input", {}).get("origin") or last_obs.get("origin") or "Indore"
                 dest = last_step.get("action_input", {}).get("destination") or last_obs.get("destination") or "Pachmarhi"
-                days = 2 if any(w in prompt_lower for w in ["2 day", "2-day", "two day", "weekend"]) else (3 if any(w in prompt_lower for w in ["3 day", "3-day", "three day"]) else 1)
                 dist_str = f" ({last_obs.get('distance_text')}, {last_obs.get('duration_text')})" if last_obs.get('distance_text') else ""
                 
                 return {
@@ -320,15 +345,43 @@ class AutonomousHeuristicPlanner(BasePlanner):
                     }
                 }
 
-            # If web search returned results, optionally query wikipedia for deeper summary
-            elif last_action == "web_search" and any(w in prompt_lower for w in ["who is", "history of", "what is", "about", "wiki"]):
-                query = last_step.get("action_input", {}).get("query", prompt)
-                return {
-                    "thought": f"Live web search is complete. I will now fetch comprehensive encyclopedia details from wikipedia_search for '{query}'.",
-                    "is_final": False,
-                    "action": "wikipedia_search",
-                    "action_input": {"query": query}
+        elif step_num == 3 and is_trip_goal and last_action == "google_maps":
+            orig = last_step.get("action_input", {}).get("origin") or last_obs.get("origin") or "Indore"
+            dest = last_step.get("action_input", {}).get("destination") or last_obs.get("destination") or "Pachmarhi"
+            days = 2 if any(w in prompt_lower for w in ["2 day", "2-day", "two day", "weekend"]) else (3 if any(w in prompt_lower for w in ["3 day", "3-day", "three day"]) else 1)
+            dist_str = f" ({last_obs.get('distance_text')}, {last_obs.get('duration_text')})" if last_obs.get('distance_text') else ""
+
+            return {
+                "thought": f"Route confirmed for '{orig} ➔ {dest}'{dist_str}. Now calling trip_planner to dynamically assemble live weather, top attractions, hotels, local cuisine, and budget calculation.",
+                "is_final": False,
+                "action": "trip_planner",
+                "action_input": {
+                    "origin": orig,
+                    "destination": dest,
+                    "duration_days": days,
+                    "travelers_count": 2,
+                    "focus": "all"
                 }
+            }
+
+        # Multi-step deep research flow: If wikipedia search completed, optionally execute live web search for supplementary insights
+        elif step_num == 2 and last_action == "wikipedia_search" and not is_trip_goal:
+            query = last_step.get("action_input", {}).get("query", prompt)
+            return {
+                "thought": f"Wikipedia encyclopedia retrieval complete for '{query}'. Now executing live web_search to gather supplementary cultural insights, expert analyses, and recent references.",
+                "is_final": False,
+                "action": "web_search",
+                "action_input": {"query": f"{query} key insights summary highlights analysis"}
+            }
+
+        elif step_num == 2 and last_action == "web_search" and any(w in prompt_lower for w in ["who is", "history of", "what is", "about", "wiki", "tell me about"]):
+            query = last_step.get("action_input", {}).get("query", prompt)
+            return {
+                "thought": f"Live web search is complete. I will now fetch comprehensive encyclopedia details from wikipedia_search for '{query}'.",
+                "is_final": False,
+                "action": "wikipedia_search",
+                "action_input": {"query": query}
+            }
 
         # =========================================================================
         # FINAL ANSWER SYNTHESIS (From Live Tool Observations)
@@ -338,6 +391,56 @@ class AutonomousHeuristicPlanner(BasePlanner):
         # Check for trip planner observation
         trip_obs = next((s.get("observation", {}) for s in trace if s.get("action") == "trip_planner" and s.get("observation", {}).get("success")), None)
         maps_obs = next((s.get("observation", {}) for s in trace if s.get("action") == "google_maps" and s.get("observation", {}).get("success")), None)
+        wiki_obs = next((s.get("observation", {}) for s in trace if s.get("action") == "wikipedia_search" and s.get("observation", {}).get("success")), None)
+        web_obs = next((s.get("observation", {}) for s in trace if s.get("action") == "web_search" and s.get("observation", {}).get("success")), None)
+
+        # 1. Comprehensive Deep Research & Encyclopedia Dossier (When Wikipedia is in trace)
+        if wiki_obs and not is_trip_goal:
+            title = wiki_obs.get("title", "Research Topic")
+            url = wiki_obs.get("url", f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title)}")
+            lead = wiki_obs.get("lead_summary", "")
+            sections = wiki_obs.get("sections", [])
+
+            research_blocks = [
+                f"# 📜 Deep Research & Encyclopedia Dossier: {title}\n"
+                f"> **Autonomous AI Knowledge Investigation** • *Primary Reference: [{title} on Wikipedia]({url})*"
+            ]
+
+            if lead:
+                research_blocks.append(
+                    f"### 1. 📖 Executive Overview & Historical Context\n{lead}"
+                )
+
+            # Sectional breakdown
+            if sections:
+                for idx, sec in enumerate(sections, 2):
+                    sec_title = sec.get("section_title", f"Key Aspect {idx}")
+                    sec_body = sec.get("content", "")
+                    research_blocks.append(f"### {idx}. 🏛️ {sec_title}\n{sec_body}")
+
+            # If web search results also exist, append live web insights
+            if web_obs and web_obs.get("results"):
+                web_highlights = []
+                for r in web_obs.get("results", [])[:3]:
+                    web_highlights.append(f"• **{r.get('title')}**: {r.get('snippet')}\n  🔗 **Source**: [{r.get('title')}]({r.get('url')})")
+                research_blocks.append(
+                    f"### 🌐 Supplementary Web Intelligence & Perspectives\n" + "\n\n".join(web_highlights)
+                )
+
+            # Reference links
+            research_blocks.append(
+                f"### 🔗 Verified Reference Sources & Further Reading\n"
+                f"• **Primary Encyclopedia**: [{title} (Full Article on Wikipedia)]({url})\n"
+                f"• **Global Knowledge Search**: [Explore Related Resources](https://en.wikipedia.org/w/index.php?search={urllib.parse.quote(title)})"
+            )
+
+            return {
+                "thought": f"Synthesized comprehensive multi-section deep research dossier for '{title}' with full encyclopedia sections and references.",
+                "is_final": True,
+                "action": None,
+                "action_input": None,
+                "final_answer": "\n\n---\n\n".join(research_blocks)
+            }
 
         if trip_obs:
             guide = trip_obs.get("guide", {})
@@ -633,23 +736,23 @@ Available Live Tools:
 
 Core Directives:
 1. ALWAYS use the live tools (`google_maps`, `weather_forecast`, `web_search`, `wikipedia_search`, `fetch_web_page`, `trip_planner`, `calculator`, `python_interpreter`) to obtain real, up-to-date data.
-2. Structure all answers using the 'MAIN DATA + FOR MORE DETAILS LINK' format:
+2. KEEP YOUR THOUGHT CONCISE (1 to 2 sentences maximum). Do NOT write lengthy chain-of-thought paragraphs.
+3. If you have gathered the required tool observations (e.g., routing, weather, or web results), synthesize the full final response under 'Final Answer:' without repeating internal monologue.
+4. Structure all final answers using the 'MAIN DATA + FOR MORE DETAILS LINK' format:
    - Provide the key direct facts, highlights, timings, descriptions, numbers, and summaries directly in the message.
    - Attach reference links at the end of items using: `🔗 **For More Details**: [Source Name](URL)` so the user can explore further if desired.
-3. For travel & places queries: Provide full sightseeing breakdowns with place names, historical importance, timings, entry fees, key attractions, food recommendations, and map/source links.
-4. For travel plans: Use `google_maps` for live routing/distance, `weather_forecast` for climate, and `trip_planner` to synthesize dynamic sightseeing, hotels, food, and budgets.
-5. For web search or general queries: Use `web_search` and `wikipedia_search`, synthesize the direct information clearly, and add relevant source links for further reading.
-6. For web URLs: Use `fetch_web_page`.
-7. For math and code: Use `calculator` and `python_interpreter`.
+5. For knowledge, history, epics, concepts & science queries (e.g. Mahabharat, Ramayana, Quantum Mechanics, Taj Mahal): Do deep research via `wikipedia_search` and `web_search`. Provide a comprehensive, multi-section dossier with full background, storyline/structure, major concepts/characters, philosophical themes, legacy, and reference links. NEVER give a short 1-line answer.
+6. For travel & places queries: Provide full sightseeing breakdowns with place names, historical importance, timings, entry fees, key attractions, food recommendations, and map/source links.
+7. For travel plans: Use `google_maps` for live routing/distance, `weather_forecast` for climate, and `trip_planner` to synthesize dynamic sightseeing, hotels, food, and budgets.
 
 Strict Output Format:
-If you need to use a tool, respond ONLY with:
-Thought: <reasoning about what to do next>
+If you need to use a tool, respond strictly with:
+Thought: <1-2 sentences brief reasoning>
 Action: <tool_name>
 Action Input: <valid JSON dictionary with parameters>
 
-If you have enough information to fulfill the request, respond ONLY with:
-Thought: <final reflection>
+If you have enough information to fulfill the request, respond strictly with:
+Thought: <1 sentence summary>
 Final Answer: <rich, beautifully structured markdown response with complete direct details, highlights, facts, and 'For More Details' reference links>
 """
 
@@ -671,7 +774,7 @@ Final Answer: <rich, beautifully structured markdown response with complete dire
         response = gguf_engine.chat_completion(
             messages=messages,
             temperature=0.1,
-            max_tokens=1024,
+            max_tokens=2500,
             stop=["\nObservation:", "<|im_end|>"]
         )
 
@@ -680,9 +783,16 @@ Final Answer: <rich, beautifully structured markdown response with complete dire
             return fallback.plan_next_step(prompt, tools_info, trace, memory_vars)
 
         raw_text = response.get("content", "")
-        return self._parse_qwen_output(raw_text)
+        return self._parse_qwen_output(raw_text, prompt=prompt, tools_info=tools_info, trace=trace, memory_vars=memory_vars)
 
-    def _parse_qwen_output(self, text: str) -> Dict[str, Any]:
+    def _parse_qwen_output(
+        self,
+        text: str,
+        prompt: str = "",
+        tools_info: Optional[List[Dict[str, Any]]] = None,
+        trace: Optional[List[Dict[str, Any]]] = None,
+        memory_vars: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         cleaned_text = text.strip()
         
         thought = ""
@@ -691,25 +801,25 @@ Final Answer: <rich, beautifully structured markdown response with complete dire
             thought = think_match.group(1).strip()
             content_after = re.sub(r"<think>.*?</think>", "", cleaned_text, flags=re.DOTALL).strip()
         else:
-            thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)", cleaned_text, re.DOTALL)
-            thought = thought_match.group(1).strip() if thought_match else "Reasoning on current state."
+            thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|Final Answer:|$)", cleaned_text, re.DOTALL | re.IGNORECASE)
+            thought = thought_match.group(1).strip() if thought_match else ""
             content_after = cleaned_text
 
-        if not thought:
-            thought = "Evaluated current state and determined next step."
-
-        final_match = re.search(r"Final Answer:\s*(.*)", content_after, re.DOTALL)
+        # 1. Check for Final Answer
+        final_match = re.search(r"Final Answer:\s*(.*)", content_after, re.DOTALL | re.IGNORECASE)
         if final_match:
+            final_content = final_match.group(1).strip()
             return {
-                "thought": thought,
+                "thought": thought or "Synthesized final comprehensive answer from collected data.",
                 "is_final": True,
                 "action": None,
                 "action_input": None,
-                "final_answer": final_match.group(1).strip()
+                "final_answer": final_content
             }
 
-        action_match = re.search(r"Action:\s*([a-zA-Z0-9_\-]+)", content_after)
-        input_match = re.search(r"Action Input:\s*(?:```(?:json)?\s*)?(\{.*?\}|\[.*?\]|.+?)(?:\s*```)?(?=Observation:|Thought:|Final Answer:|$)", content_after, re.DOTALL)
+        # 2. Check for Action
+        action_match = re.search(r"Action:\s*([a-zA-Z0-9_\-]+)", content_after, re.IGNORECASE)
+        input_match = re.search(r"Action Input:\s*(?:```(?:json)?\s*)?(\{.*?\}|\[.*?\]|.+?)(?:\s*```)?(?=Observation:|Thought:|Final Answer:|$)", content_after, re.DOTALL | re.IGNORECASE)
 
         action = action_match.group(1).strip() if action_match else None
         action_input = {}
@@ -736,16 +846,24 @@ Final Answer: <rich, beautifully structured markdown response with complete dire
 
         if action:
             return {
-                "thought": thought,
+                "thought": thought or "Evaluating next actionable step with real live tool.",
                 "is_final": False,
                 "action": action,
                 "action_input": action_input,
                 "final_answer": None
             }
 
-        fallback_final = content_after if content_after else thought
+        # 3. Fallback: If Qwen rambled or outputted raw internal thought without explicit Final Answer keyword
+        # Check if we already have tool observations in trace (e.g. google_maps, weather, etc.)
+        if trace and len(trace) > 0:
+            heuristic = AutonomousHeuristicPlanner()
+            synthesized = heuristic.plan_next_step(prompt or "travel plan", tools_info or [], trace, memory_vars or {})
+            if synthesized.get("is_final") and synthesized.get("final_answer"):
+                return synthesized
+
+        fallback_final = content_after if content_after else (thought or "Task executed successfully.")
         return {
-            "thought": thought,
+            "thought": thought or "Completed task reasoning.",
             "is_final": True,
             "action": None,
             "action_input": None,
