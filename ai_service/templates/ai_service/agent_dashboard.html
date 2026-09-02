@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic AI Control Dashboard | Qwen3-4B & Metal GPU</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-card: rgba(18, 24, 38, 0.85);
+            --bg-card-hover: rgba(26, 35, 54, 0.95);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-glow: rgba(99, 102, 241, 0.25);
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --primary: #6366f1;
+            --primary-light: #818cf8;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-purple: #a855f7;
+            --danger: #ef4444;
+            --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(6, 182, 212, 0.08) 0px, transparent 50%);
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(10, 14, 23, 0.75);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .brand-icon {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, var(--primary), var(--accent-cyan));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
+        }
+
+        .brand-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(90deg, #ffffff, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-badge {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--primary-light);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+
+        .header-status {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            padding: 0.35rem 0.8rem;
+            border-radius: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .status-dot.amber {
+            background: var(--accent-amber);
+            box-shadow: 0 0 8px var(--accent-amber);
+        }
+
+        main {
+            max-width: 1280px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 2rem;
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1.15fr 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 960px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.75rem;
+            backdrop-filter: blur(16px);
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Model Configuration Card */
+        .model-card {
+            background: rgba(10, 14, 23, 0.6);
+            border: 1px solid var(--border-glow);
+            border-radius: 12px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .model-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .model-name {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--accent-cyan);
+        }
+
+        .preset-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .chip {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            padding: 0.4rem 0.85rem;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .chip:hover {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: var(--primary-light);
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        textarea {
+            width: 100%;
+            height: 110px;
+            background: rgba(10, 14, 23, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1rem;
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            font-size: 0.95rem;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px var(--border-glow);
+        }
+
+        .options-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        select, input[type="number"], input[type="text"] {
+            width: 100%;
+            background: rgba(10, 14, 23, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0.6rem 0.8rem;
+            color: var(--text-main);
+            font-family: var(--font-sans);
+            font-size: 0.9rem;
+            outline: none;
+        }
+
+        button.btn-run {
+            background: linear-gradient(135deg, var(--primary), #4f46e5);
+            color: #ffffff;
+            font-family: var(--font-sans);
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            padding: 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+        }
+
+        button.btn-run:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+        }
+
+        button.btn-run:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        button.btn-secondary {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 0.5rem 0.9rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        button.btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        /* Results / Execution Trace Column */
+        .output-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .card-final-answer {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(6, 182, 212, 0.04));
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 14px;
+            padding: 1.25rem;
+        }
+
+        .final-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: var(--accent-green);
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .final-text {
+            font-size: 1rem;
+            line-height: 1.6;
+            color: #ffffff;
+            white-space: pre-wrap;
+        }
+
+        .trace-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .trace-step {
+            background: rgba(10, 14, 23, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            position: relative;
+            transition: all 0.2s ease;
+        }
+
+        .trace-step:hover {
+            border-color: var(--border-glow);
+            background: rgba(18, 24, 38, 0.8);
+        }
+
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .step-tag {
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--primary-light);
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            font-family: var(--font-mono);
+        }
+
+        .step-duration {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .thought-box {
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            line-height: 1.5;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            border-left: 3px solid var(--primary-light);
+        }
+
+        .action-row {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            font-size: 0.85rem;
+        }
+
+        .action-name {
+            color: var(--accent-cyan);
+            font-weight: 600;
+            font-family: var(--font-mono);
+        }
+
+        .code-block {
+            background: #06090e;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: #a5f3fc;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .observation-box {
+            background: rgba(16, 185, 129, 0.04);
+            border-left: 3px solid var(--accent-green);
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .observation-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--accent-green);
+            margin-bottom: 0.25rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .empty-icon {
+            font-size: 2.5rem;
+            opacity: 0.6;
+        }
+
+        .tools-drawer {
+            grid-column: 1 / -1;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+        }
+
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .tool-card {
+            background: rgba(10, 14, 23, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .tool-name {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--primary-light);
+        }
+
+        .tool-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #ffffff;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="brand-icon">⚡</div>
+            <div>
+                <div class="brand-title">Agentic AI Platform</div>
+            </div>
+            <span class="brand-badge">Qwen3-4B Metal Edition</span>
+        </div>
+        <div class="header-status">
+            <div class="status-pill">
+                <div id="model-status-dot" class="status-dot amber"></div>
+                <span id="model-status-text">Qwen3-4B-Q4_K_M.gguf: Checking...</span>
+            </div>
+            <div class="status-pill">
+                <div class="status-dot"></div>
+                <span>Metal GPU Acceleration</span>
+            </div>
+            <div class="status-pill">
+                <span>Tools: <strong id="tools-count" style="color: var(--accent-cyan);">7</strong></span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left: Input & Prompt Controller -->
+        <section class="panel">
+            <div class="panel-header">
+                <div class="panel-title">🎯 Goal & Agent Instruction</div>
+            </div>
+
+            <!-- GGUF Model Setup & Direct Path Input -->
+            <div class="model-card">
+                <div class="model-header">
+                    <div class="model-name">🦙 Model: Qwen3-4B-Q4_K_M.gguf</div>
+                    <span id="model-badge" class="step-tag" style="background: rgba(245, 158, 11, 0.2); color: var(--accent-amber);">Waiting for File</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">
+                    Place <code>Qwen3-4B-Q4_K_M.gguf</code> into <code>models/</code> folder or provide the direct file path below:
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="direct-model-path" placeholder="e.g. models/Qwen3-4B-Q4_K_M.gguf or /path/to/model.gguf">
+                    <button class="btn-secondary" onclick="loadCustomModel()">Load GPU</button>
+                </div>
+            </div>
+
+            <div>
+                <label style="margin-bottom: 0.5rem; display: block;">Quick Presets:</label>
+                <div class="preset-chips">
+                    <div class="chip" onclick="setPreset('Provide driving directions and distance from San Francisco to San Jose.')">🗺️ Driving Directions</div>
+                    <div class="chip" onclick="setPreset('Find top-rated cafes near Eiffel Tower in Paris.')">📍 Places & Cafes</div>
+                    <div class="chip" onclick="setPreset('Where is the Sydney Opera House located and what are its coordinates?')">🌐 Geocode Location</div>
+                    <div class="chip" onclick="setPreset('Calculate compound interest for $1500 at 6.5% interest over 4 years and explain the formula.')">🧮 Compound Interest</div>
+                    <div class="chip" onclick="setPreset('Search the knowledge base for Agentic AI and ReAct paradigm details.')">🔍 Knowledge Search</div>
+                    <div class="chip" onclick="setPreset('Evaluate sentiment and keywords for: \'The PyTorch MPS acceleration on Apple Silicon is unbelievably fast and smooth!\'')">🧠 Sentiment NLP</div>
+                    <div class="chip" onclick="setPreset('Execute a Python script to compute the first 10 Fibonacci numbers and their sum.')">🐍 Python Algorithm</div>
+                    <div class="chip" onclick="setPreset('What will be the date and day of the week exactly 21 days from today?')">⏰ Date & Time Offset</div>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="prompt-input">Enter Task / Objective:</label>
+                <textarea id="prompt-input" placeholder="e.g., Calculate sqrt(256) * 15, then analyze the sentiment of 'Antigravity AI is fantastic!'"></textarea>
+            </div>
+
+            <div class="options-row">
+                <div class="input-group">
+                    <label for="planner-mode">Planner Engine:</label>
+                    <select id="planner-mode">
+                        <option value="gguf">Qwen3-4B GGUF (Metal GPU)</option>
+                        <option value="heuristic">Autonomous Cognitive (Zero-Key)</option>
+                        <option value="external_llm">External LLM Adapter</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="max-iterations">Max Steps:</label>
+                    <input type="number" id="max-iterations" value="6" min="1" max="15">
+                </div>
+            </div>
+
+            <div id="llm-auth-section" style="display: none;" class="input-group">
+                <label for="api-key-input">OpenAI / LLM API Key (Optional):</label>
+                <input type="text" id="api-key-input" placeholder="sk-...">
+            </div>
+
+            <button class="btn-run" id="btn-run" onclick="executeAgent()">
+                <span id="btn-text">Execute Agentic Task</span>
+                <div id="btn-spinner" class="spinner" style="display: none;"></div>
+            </button>
+        </section>
+
+        <!-- Right: Real-time Trace & Final Answer -->
+        <section class="panel output-container">
+            <div class="panel-header">
+                <div class="panel-title">📊 Execution Trace & Reasoning</div>
+                <span id="exec-metrics" class="step-duration">Ready</span>
+            </div>
+
+            <div id="results-area">
+                <div class="empty-state">
+                    <div class="empty-icon">🧠</div>
+                    <div>Agent is waiting for instructions.</div>
+                    <p style="font-size: 0.85rem;">Select a preset or enter a goal to watch the autonomous ReAct cycle on Apple Silicon GPU.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Bottom: Tools Catalog -->
+        <section class="tools-drawer">
+            <div class="panel-title">🛠️ Available Agent Tools</div>
+            <div class="tools-grid" id="tools-grid">
+                <!-- Dynamically populated -->
+            </div>
+        </section>
+    </main>
+
+    <script>
+        document.getElementById('planner-mode').addEventListener('change', (e) => {
+            document.getElementById('llm-auth-section').style.display = e.target.value === 'external_llm' ? 'flex' : 'none';
+        });
+
+        function setPreset(text) {
+            document.getElementById('prompt-input').value = text;
+        }
+
+        async function checkModelStatus() {
+            try {
+                const res = await fetch('/api/model/status/');
+                const data = await res.json();
+                const dot = document.getElementById('model-status-dot');
+                const text = document.getElementById('model-status-text');
+                const badge = document.getElementById('model-badge');
+
+                if (data.is_loaded) {
+                    dot.className = "status-dot";
+                    text.innerText = `Active: ${data.loaded_model_path.split('/').pop()}`;
+                    badge.innerText = "Loaded in Metal GPU";
+                    badge.style.background = "rgba(16, 185, 129, 0.2)";
+                    badge.style.color = "var(--accent-green)";
+                } else if (data.target_model_found) {
+                    dot.className = "status-dot";
+                    text.innerText = `Ready: ${data.default_model_path.split('/').pop()}`;
+                    badge.innerText = "File Found (Ready)";
+                    badge.style.background = "rgba(6, 182, 212, 0.2)";
+                    badge.style.color = "var(--accent-cyan)";
+                    document.getElementById('direct-model-path').value = data.default_model_path;
+                } else {
+                    dot.className = "status-dot amber";
+                    text.innerText = `Waiting for Qwen3-4B-Q4_K_M.gguf`;
+                    badge.innerText = "File Awaited";
+                    badge.style.background = "rgba(245, 158, 11, 0.2)";
+                    badge.style.color = "var(--accent-amber)";
+                }
+            } catch (err) {
+                console.error("Failed to fetch model status", err);
+            }
+        }
+
+        async function loadCustomModel() {
+            const path = document.getElementById('direct-model-path').value.trim();
+            if (!path) {
+                alert("Please provide the file path to your .gguf model file.");
+                return;
+            }
+            try {
+                const res = await fetch('/api/model/load/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_path: path })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(data.message);
+                    checkModelStatus();
+                } else {
+                    alert(`Error loading model: ${data.error}`);
+                }
+            } catch (err) {
+                alert(`Request error: ${err.message}`);
+            }
+        }
+
+        async function loadTools() {
+            try {
+                const res = await fetch('/api/agent/tools/');
+                const data = await res.json();
+                if (data.tools) {
+                    document.getElementById('tools-count').innerText = data.tools.length;
+                    const grid = document.getElementById('tools-grid');
+                    grid.innerHTML = data.tools.map(t => `
+                        <div class="tool-card">
+                            <div class="tool-name">⚡ ${t.name}</div>
+                            <div class="tool-desc">${t.description}</div>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error("Failed to load tools", err);
+            }
+        }
+
+        async function executeAgent() {
+            const prompt = document.getElementById('prompt-input').value.trim();
+            if (!prompt) {
+                alert("Please enter a task or select a preset!");
+                return;
+            }
+
+            const maxIterations = parseInt(document.getElementById('max-iterations').value) || 6;
+            const plannerMode = document.getElementById('planner-mode').value;
+            const directPath = document.getElementById('direct-model-path').value.trim();
+            const apiKey = document.getElementById('api-key-input').value.trim();
+
+            const btn = document.getElementById('btn-run');
+            const btnText = document.getElementById('btn-text');
+            const spinner = document.getElementById('btn-spinner');
+            const resultsArea = document.getElementById('results-area');
+            const execMetrics = document.getElementById('exec-metrics');
+
+            btn.disabled = true;
+            btnText.innerText = "Agent Thinking & Executing...";
+            spinner.style.display = "block";
+            resultsArea.innerHTML = `
+                <div class="empty-state">
+                    <div class="spinner" style="width: 36px; height: 36px; border-width: 3px; margin-bottom: 1rem;"></div>
+                    <div>Agentic ReAct Loop in Progress...</div>
+                    <p style="font-size: 0.85rem;">Synthesizing goal, invoking tools, and evaluating observations on Metal GPU...</p>
+                </div>
+            `;
+
+            const payload = {
+                prompt: prompt,
+                max_iterations: maxIterations,
+                planner_mode: plannerMode,
+            };
+
+            if (directPath) {
+                payload.model_path = directPath;
+            }
+
+            if (plannerMode === 'external_llm' && apiKey) {
+                payload.llm_config = { api_key: apiKey };
+            }
+
+            try {
+                const res = await fetch('/api/agent/run/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.error || "Execution failed");
+                }
+
+                execMetrics.innerText = `⚡ ${data.total_steps} steps in ${data.total_execution_time_ms}ms (${data.engine || 'Agent'})`;
+
+                // Render output
+                let html = `
+                    <div class="card-final-answer">
+                        <div class="final-badge">✓ Final Synthesized Answer</div>
+                        <div class="final-text">${data.final_answer}</div>
+                    </div>
+                    <div class="trace-list" style="margin-top: 1rem;">
+                `;
+
+                if (data.trace && data.trace.length > 0) {
+                    data.trace.forEach(step => {
+                        html += `
+                            <div class="trace-step">
+                                <div class="step-header">
+                                    <span class="step-tag">STEP ${step.step}</span>
+                                    <span class="step-duration">${step.duration_ms}ms</span>
+                                </div>
+                                <div class="thought-box">
+                                    <strong>💭 Thought:</strong> ${step.thought}
+                                </div>
+                                <div class="action-row">
+                                    <div><strong>⚙️ Invoked Tool:</strong> <span class="action-name">${step.action}</span></div>
+                                    <div class="code-block">${JSON.stringify(step.action_input, null, 2)}</div>
+                                </div>
+                                <div class="observation-box">
+                                    <div class="observation-title">👁️ Observation Result:</div>
+                                    <div class="code-block" style="color: #6ee7b7;">${JSON.stringify(step.observation, null, 2)}</div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+
+                html += `</div>`;
+                resultsArea.innerHTML = html;
+
+            } catch (err) {
+                resultsArea.innerHTML = `
+                    <div class="card-final-answer" style="border-color: var(--danger); background: rgba(239, 68, 68, 0.1);">
+                        <div class="final-badge" style="color: var(--danger);">⚠ Error Occurred</div>
+                        <div class="final-text" style="color: #fca5a5;">${err.message}</div>
+                    </div>
+                `;
+            } finally {
+                btn.disabled = false;
+                btnText.innerText = "Execute Agentic Task";
+                spinner.style.display = "none";
+            }
+        }
+
+        // Initialize on load
+        loadTools();
+        checkModelStatus();
+    </script>
+</body>
+</html>
