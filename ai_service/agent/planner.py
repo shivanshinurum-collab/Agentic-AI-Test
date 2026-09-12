@@ -111,8 +111,8 @@ class AutonomousHeuristicPlanner(BasePlanner):
                     focus = "attractions"
 
                 # Dynamic origin & destination extraction
-                orig = "Indore"
-                dest = "Pachmarhi"
+                orig = "Current Location"
+                dest = ""
                 
                 from_to_match = re.search(
                     r'(?:from\s+)?([a-zA-Z\s]{2,30}?)\s+(?:to|se|-|➔|->)\s+([a-zA-Z\s]{2,30}?)(?:\s+(?:trip|travel|tour|itinerary|ghoomne|jaana|darshan|guide|plan|package|distance|route|fare|hotels?|food|places)|\?|$|[.,!])',
@@ -139,12 +139,12 @@ class AutonomousHeuristicPlanner(BasePlanner):
                         cand_clean = re.sub(r'\s+(?:trip|tour|guide|plan|food|hotel|hotels|stay|budget|for|with|near|and|to|from).*', '', cand, flags=re.IGNORECASE).strip()
                         if cand_clean:
                             dest = cand_clean
-                            orig = "Indore" if dest.lower() != "indore" else "Bhopal"
+                            orig = "Indore" if dest.lower() != "indore" else "Delhi"
                     else:
                         dest_prefix = re.search(r'([a-zA-Z]{3,25})\s+(?:trip|tour|itinerary|vacation|holiday|ghoomne|darshan|guide)', prompt, re.IGNORECASE)
                         if dest_prefix:
                             dest = dest_prefix.group(1).strip().title()
-                            orig = "Indore" if dest.lower() != "indore" else "Bhopal"
+                            orig = "Indore" if dest.lower() != "indore" else "Delhi"
 
                 # If no specific destination was specified, dynamically search the web for top weekend getaways
                 if not dest:
@@ -692,7 +692,7 @@ class AutonomousHeuristicPlanner(BasePlanner):
 
         final_text = "\n\n".join(answer_parts) if answer_parts else "Task completed successfully."
         return {
-            "thought": "I have executed the required live tools and gathered real-time data to fully fulfill the user's objective.",
+            "thought": "I have executed the required live tools and gathered real-time data.",
             "is_final": True,
             "action": None,
             "action_input": None,
@@ -703,7 +703,8 @@ class AutonomousHeuristicPlanner(BasePlanner):
 class GGUFLocalLLMPlanner(BasePlanner):
     """
     Direct GGUF Planner tailored for Qwen3-4B-Q4_K_M.gguf running on Apple Silicon GPU.
-    Uses native ReAct structured prompt format with zero hardcoding and live tool execution.
+    Uses LLM-driven tool execution and passes ALL collected observations to the LLM
+    for synthesizing the final high-level user-friendly response.
     """
     def __init__(self, model_path: Optional[str] = None):
         self.model_path = model_path
@@ -720,61 +721,45 @@ class GGUFLocalLLMPlanner(BasePlanner):
         if not gguf_engine.is_model_available(self.model_path):
             fallback = AutonomousHeuristicPlanner()
             res = fallback.plan_next_step(prompt, tools_info, trace, memory_vars)
-            res["thought"] = f"[Qwen GGUF Ready Mode] {res.get('thought', '')}"
+            res["thought"] = f"[Local Model Engine] {res.get('thought', '')}"
             return res
 
+        # If tool observations have been collected in trace, synthesize final response using ALL collected data
+        if len(trace) >= 1:
+            return self.synthesize_final_answer(prompt, trace, tools_info)
+
+        # Step 1: Evaluate if tool call is needed or if direct answer is sufficient
         tools_desc = "\n".join([
             f"- {t['name']}: {t['description']} | Parameters: {json.dumps(t['parameters'])}"
             for t in tools_info
         ])
 
-        system_prompt = f"""You are an elite autonomous Agentic AI powered by Qwen GGUF running with Apple Silicon GPU acceleration.
-Your goal is to solve the user's objective thoroughly and dynamically using the ReAct (Reasoning + Action + Observation) paradigm with real live tools.
+        system_prompt = f"""You are an intelligent, high-level AI Assistant.
+Your goal is to solve the user's objective with accurate real-time data or comprehensive direct answers.
 
 Available Live Tools:
 {tools_desc}
 
-Core Directives:
-1. ALWAYS use the live tools (`google_maps`, `weather_forecast`, `web_search`, `wikipedia_search`, `fetch_web_page`, `trip_planner`, `calculator`, `python_interpreter`) to obtain real, up-to-date data.
-2. KEEP YOUR THOUGHT CONCISE (1 to 2 sentences maximum). Do NOT write lengthy chain-of-thought paragraphs.
-3. If you have gathered the required tool observations (e.g., routing, weather, or web results), synthesize the full final response under 'Final Answer:' without repeating internal monologue.
-4. Structure all final answers using the 'MAIN DATA + FOR MORE DETAILS LINK' format:
-   - Provide the key direct facts, highlights, timings, descriptions, numbers, and summaries directly in the message.
-   - Attach reference links at the end of items using: `🔗 **For More Details**: [Source Name](URL)` so the user can explore further if desired.
-5. For knowledge, history, epics, concepts & science queries (e.g. Mahabharat, Ramayana, Quantum Mechanics, Taj Mahal): Do deep research via `wikipedia_search` and `web_search`. Provide a comprehensive, multi-section dossier with full background, storyline/structure, major concepts/characters, philosophical themes, legacy, and reference links. NEVER give a short 1-line answer.
-6. For travel & places queries: Provide full sightseeing breakdowns with place names, historical importance, timings, entry fees, key attractions, food recommendations, and map/source links.
-7. For travel plans: Use `google_maps` for live routing/distance, `weather_forecast` for climate, and `trip_planner` to synthesize dynamic sightseeing, hotels, food, and budgets.
-
-Strict Output Format:
-If you need to use a tool, respond strictly with:
-Thought: <1-2 sentences brief reasoning>
+Instructions:
+1. If the user query requires real-time live data (e.g., current weather, live directions/maps, latest web search, wikipedia lookup), choose the appropriate tool.
+2. If you need to run a tool, respond ONLY in this format:
+Thought: <reasoning for choosing tool>
 Action: <tool_name>
-Action Input: <valid JSON dictionary with parameters>
+Action Input: <JSON dictionary with required arguments>
 
-If you have enough information to fulfill the request, respond strictly with:
-Thought: <1 sentence summary>
-Final Answer: <rich, beautifully structured markdown response with complete direct details, highlights, facts, and 'For More Details' reference links>
+3. If the query is a general knowledge question, coding request, mathematical problem, or conversational message that DOES NOT require live tools, respond directly with:
+Final Answer: <your full, detailed, high-level user-friendly explanation in markdown>
 """
 
         messages = [
             {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"User Goal: {prompt}"}
         ]
-
-        history_lines = [f"User Goal: {prompt}\n"]
-        for s in trace:
-            history_lines.append(f"Step {s['step']}:")
-            history_lines.append(f"Thought: {s['thought']}")
-            history_lines.append(f"Action: {s['action']}")
-            history_lines.append(f"Action Input: {json.dumps(s['action_input'])}")
-            history_lines.append(f"Observation: {json.dumps(s['observation'])}\n")
-
-        history_lines.append("Determine the next Thought and Action (or Final Answer):")
-        messages.append({"role": "user", "content": "\n".join(history_lines)})
 
         response = gguf_engine.chat_completion(
             messages=messages,
-            temperature=0.1,
-            max_tokens=2500,
+            temperature=0.2,
+            max_tokens=1500,
             stop=["\nObservation:", "<|im_end|>"]
         )
 
@@ -784,6 +769,78 @@ Final Answer: <rich, beautifully structured markdown response with complete dire
 
         raw_text = response.get("content", "")
         return self._parse_qwen_output(raw_text, prompt=prompt, tools_info=tools_info, trace=trace, memory_vars=memory_vars)
+
+    def synthesize_final_answer(
+        self,
+        prompt: str,
+        trace: List[Dict[str, Any]],
+        tools_info: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Passes ALL collected tool data to Qwen GGUF model and instructs it to synthesize
+        the ultimate high-level, detailed, user-friendly answer.
+        """
+        from ai_service.gguf_engine import gguf_engine
+
+        formatted_obs = []
+        for idx, step in enumerate(trace, 1):
+            act = step.get("action", "unknown_tool")
+            obs = step.get("observation", {})
+            obs_json = json.dumps(obs, indent=2, ensure_ascii=False) if isinstance(obs, dict) else str(obs)
+            formatted_obs.append(f"--- TOOL STEP {idx}: {act} ---\nAction Input: {json.dumps(step.get('action_input', {}))}\nObservation Data:\n{obs_json}")
+
+        obs_text = "\n\n".join(formatted_obs)
+
+        system_prompt = f"""You are an elite, highly intelligent AI Assistant.
+The user asked the following question / objective:
+"{prompt}"
+
+The system executed live tools and gathered the following real-time data and observations for you:
+==================================================
+{obs_text}
+==================================================
+
+YOUR TASK:
+Synthesize ALL the collected real-time data above into the ultimate best, high-level, human-friendly, comprehensive, and well-explained final answer.
+
+Formatting & Quality Guidelines:
+1. Explain everything clearly with deep context, structured headings (`###`), bullet points, and key details.
+2. If weather, location, search, wiki, or route data was retrieved, present direct metrics, numbers, and facts clearly.
+3. Attach reference source links wherever available (e.g. `🔗 **For More Details**: [Source Title](URL)`).
+4. Use clean Markdown tables for dates/forecasts/budgets/comparisons if applicable.
+5. Provide a warm, professional, engaging tone. Do NOT mention internal JSON schemas, tool names, or raw debugging data.
+6. Provide a complete, polished response that directly answers the user's objective.
+"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Please synthesize the final comprehensive answer for the user's query: '{prompt}' based on all collected data above."}
+        ]
+
+        response = gguf_engine.chat_completion(
+            messages=messages,
+            temperature=0.6,
+            max_tokens=2048
+        )
+
+        if response.get("success") and response.get("content"):
+            raw_text = response.get("content").strip()
+            # Strip internal <think>...</think> reasoning blocks if present
+            clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
+            if clean_text.startswith("Final Answer:"):
+                clean_text = clean_text[13:].strip()
+
+            return {
+                "thought": f"Synthesized high-level final response using all {len(trace)} collected tool observations with local GGUF model.",
+                "is_final": True,
+                "action": None,
+                "action_input": None,
+                "final_answer": clean_text
+            }
+
+        # Fallback if completion fails
+        fallback = AutonomousHeuristicPlanner()
+        return fallback.plan_next_step(prompt, tools_info or [], trace, {})
 
     def _parse_qwen_output(
         self,
@@ -810,7 +867,7 @@ Final Answer: <rich, beautifully structured markdown response with complete dire
         if final_match:
             final_content = final_match.group(1).strip()
             return {
-                "thought": thought or "Synthesized final comprehensive answer from collected data.",
+                "thought": thought or "Generated high-level direct response.",
                 "is_final": True,
                 "action": None,
                 "action_input": None,
@@ -846,28 +903,20 @@ Final Answer: <rich, beautifully structured markdown response with complete dire
 
         if action:
             return {
-                "thought": thought or "Evaluating next actionable step with real live tool.",
+                "thought": thought or f"Executing tool '{action}' to gather live context.",
                 "is_final": False,
                 "action": action,
                 "action_input": action_input,
                 "final_answer": None
             }
 
-        # 3. Fallback: If Qwen rambled or outputted raw internal thought without explicit Final Answer keyword
-        # Check if we already have tool observations in trace (e.g. google_maps, weather, etc.)
-        if trace and len(trace) > 0:
-            heuristic = AutonomousHeuristicPlanner()
-            synthesized = heuristic.plan_next_step(prompt or "travel plan", tools_info or [], trace, memory_vars or {})
-            if synthesized.get("is_final") and synthesized.get("final_answer"):
-                return synthesized
-
-        fallback_final = content_after if content_after else (thought or "Task executed successfully.")
+        # 3. Direct response without explicit Action or Final Answer prefix
         return {
-            "thought": thought or "Completed task reasoning.",
+            "thought": thought or "Generated direct user answer.",
             "is_final": True,
             "action": None,
             "action_input": None,
-            "final_answer": fallback_final
+            "final_answer": cleaned_text
         }
 
 

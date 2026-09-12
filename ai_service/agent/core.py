@@ -105,10 +105,20 @@ class AgenticExecutor:
             }
             trace.append(trace_entry)
 
-        # 4. Handle recursion / max iterations limit
+        # 4. Handle recursion / max iterations limit with LLM final synthesis
         if status != "completed":
-            status = "max_iterations_reached"
-            final_answer = f"Agent reached the maximum iteration limit ({iterations_limit}). Completed {len(trace)} steps."
+            if trace and hasattr(planner, "synthesize_final_answer"):
+                try:
+                    synth = planner.synthesize_final_answer(prompt, trace, tools_info)
+                    if synth.get("final_answer"):
+                        final_answer = synth.get("final_answer")
+                        status = "completed"
+                except Exception:
+                    pass
+
+            if status != "completed":
+                status = "max_iterations_reached"
+                final_answer = final_answer or f"Agent reached iteration limit. Completed {len(trace)} steps."
 
         total_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
         

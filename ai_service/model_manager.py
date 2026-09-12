@@ -45,14 +45,47 @@ class AIModelService:
 
     def predict_sentiment_simple(self, text: str) -> dict:
         """
-        Sample rule-assisted embedding representation demo.
-        Can be replaced with Hugging Face transformers pipeline or custom weights.
+        Deep NLP & Sentiment Analysis powered by GGUF Local Model Engine (or enhanced rule-assisted fallback).
         """
         text_clean = text.strip()
         if not text_clean:
             return {"error": "Text cannot be empty"}
         
-        # Expanded sentiment scoring with punctuation stripping
+        # Try local GGUF model inference first
+        try:
+            from ai_service.gguf_engine import gguf_engine
+            if gguf_engine.is_model_available():
+                system_prompt = (
+                    "You are an expert NLP Sentiment & Emotion Analyzer. "
+                    "Analyze the given text and respond strictly in valid JSON format with keys:\n"
+                    '{"sentiment": "POSITIVE"|"NEGATIVE"|"NEUTRAL"|"MIXED", "confidence": float_0_to_1, "emotions": [string], "summary_explanation": string}'
+                )
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Analyze sentiment and emotion for: '{text_clean}'"}
+                ]
+                res = gguf_engine.chat_completion(messages=messages, temperature=0.1, max_tokens=300)
+                if res.get("success") and res.get("content"):
+                    import json
+                    raw_content = res.get("content").strip()
+                    # Extract JSON block
+                    json_match = re.search(r'\{.*\}', raw_content, re.DOTALL)
+                    if json_match:
+                        parsed = json.loads(json_match.group(0))
+                        return {
+                            "input_text": text,
+                            "sentiment": parsed.get("sentiment", "NEUTRAL"),
+                            "confidence": round(float(parsed.get("confidence", 0.85)), 4),
+                            "emotions": parsed.get("emotions", []),
+                            "analysis": parsed.get("summary_explanation", "AI analyzed text sentiment."),
+                            "word_count": len(text_clean.split()),
+                            "engine": "GGUF Qwen Model (Apple Silicon GPU)",
+                            "device": self.device_name,
+                        }
+        except Exception:
+            pass
+
+        # Fallback sentiment scoring
         pos_words = {
             "good", "great", "excellent", "awesome", "fast", "love", "loved", "lovely",
             "like", "liked", "best", "happy", "fantastic", "amazing", "wonderful", "wonderfully",
@@ -72,21 +105,24 @@ class AIModelService:
         
         if score > 0.05:
             sentiment = "POSITIVE"
-            confidence = min(0.6 + score * 0.4, 0.99)
+            confidence = min(0.65 + score * 0.35, 0.99)
         elif score < -0.05:
             sentiment = "NEGATIVE"
-            confidence = min(0.6 + abs(score) * 0.4, 0.99)
+            confidence = min(0.65 + abs(score) * 0.35, 0.99)
         else:
             sentiment = "NEUTRAL"
-            confidence = 0.5
+            confidence = 0.55
             
         return {
             "input_text": text,
             "sentiment": sentiment,
             "confidence": round(confidence, 4),
             "word_count": len(words),
+            "engine": "Standard Rule Analyzer",
             "device": self.device_name,
         }
+
+import re
 
 # Global singleton accessor
 ai_service = AIModelService.get_instance()
