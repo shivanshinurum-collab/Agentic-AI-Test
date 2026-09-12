@@ -1938,6 +1938,63 @@ class KnowledgeSearchTool(BaseTool):
 # =====================================================================
 # Pluggable Tool Registry
 # =====================================================================
+# 13. Email Sender Tool
+# =====================================================================
+class EmailSenderTool(BaseTool):
+    """
+    Sends email notifications, itineraries, and messages autonomously to a recipient address.
+    """
+    name = "send_email"
+    description = "Sends an email notification or document to a recipient. Required parameters: 'to_email', 'subject', 'body'."
+    parameters_schema = {
+        "to_email": {
+            "type": "string",
+            "description": "Recipient email address (e.g. recipient@example.com)",
+            "required": True
+        },
+        "subject": {
+            "type": "string",
+            "description": "Subject line of the email",
+            "required": True
+        },
+        "body": {
+            "type": "string",
+            "description": "Main body message of the email",
+            "required": True
+        }
+    }
+
+    def execute(self, to_email: str, subject: str, body: str, **kwargs) -> Dict[str, Any]:
+        text_to = to_email.strip() if isinstance(to_email, str) else ""
+        text_subject = subject.strip() if isinstance(subject, str) else ""
+        text_body = body.strip() if isinstance(body, str) else ""
+
+        if not text_to or not text_subject or not text_body:
+            return {"success": False, "error": "Parameters 'to_email', 'subject', and 'body' are required."}
+
+        try:
+            from django.core.mail import send_mail
+            send_mail(
+                subject=text_subject,
+                message=text_body,
+                from_email=None,
+                recipient_list=[text_to],
+                fail_silently=False
+            )
+            return {
+                "success": True,
+                "recipient": text_to,
+                "subject": text_subject,
+                "message": f"Email successfully dispatched to {text_to}."
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to send email: {type(e).__name__}: {str(e)}"
+            }
+
+
+# =====================================================================
 class ToolRegistry:
     """
     Central registry for managing and invoking dynamic tools.
@@ -1988,3 +2045,4 @@ default_registry.register(KnowledgeSearchTool())
 default_registry.register(NLPAnalyzerTool())
 default_registry.register(DateTimeTool())
 default_registry.register(MemoryTool())
+default_registry.register(EmailSenderTool())

@@ -5,6 +5,47 @@ import urllib.error
 from typing import Dict, Any, List, Optional, Tuple
 from .tools import ToolRegistry
 
+def parse_email_request(prompt: str) -> Optional[Dict[str, Any]]:
+    prompt_lower = prompt.lower().strip()
+    email_match = re.search(r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', prompt)
+    
+    email_keywords = ["send email", "send mail", "email to", "mail to", "email send", "mail send", "bhej do", "bhejo", "ko mail", "ko email", "email=", "email:", "mail:"]
+    is_email_intent = bool(email_match) or any(k in prompt_lower for k in email_keywords)
+    
+    if not is_email_intent:
+        return None
+        
+    target_email = email_match.group(1).strip() if email_match else "shivansh.inurum@gmail.com"
+    
+    # Extract subject
+    subject_val = "Agent Main Notification"
+    subj_match = re.search(r'(?:subject|vishay|topic)\s*[:=]\s*["\']?([^,\n"\']+?)["\']?(?:,|\s+message|\s+body|\s+msg|\s+text|$)', prompt, re.IGNORECASE)
+    if subj_match:
+        subject_val = subj_match.group(1).strip()
+    elif "test" in prompt_lower:
+        subject_val = "Test Email from Agentic AI"
+        
+    # Extract body / message
+    msg_match = re.search(r'(?:message|msg|body|content|text)\s*[:=]\s*["\']?([^"\']+)["\']?', prompt, re.IGNORECASE)
+    if msg_match:
+        body_val = msg_match.group(1).strip()
+    else:
+        clean_body = re.sub(r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', '', prompt)
+        clean_body = re.sub(r'(?:send email|send mail|email to|mail to|email send|mail send|bhej do|bhejo|ko mail|ko email|subject\s*[:=]\s*[^,]+|,)', '', clean_body, flags=re.IGNORECASE).strip(" :=,\"'")
+        body_val = clean_body if len(clean_body) > 2 else prompt
+        
+    return {
+        "thought": f"The user requested to send an email to '{target_email}'. Invoking send_email tool.",
+        "is_final": False,
+        "action": "send_email",
+        "action_input": {
+            "to_email": target_email,
+            "subject": subject_val,
+            "body": body_val
+        }
+    }
+
+
 class BasePlanner:
     def plan_next_step(
         self,
@@ -47,6 +88,11 @@ class AutonomousHeuristicPlanner(BasePlanner):
         # STEP 1: Intent Detection & Dynamic Initial Tool Selection
         # =========================================================================
         if step_num == 1:
+            # 0. Check for Email Dispatch Request
+            email_plan = parse_email_request(prompt)
+            if email_plan:
+                return email_plan
+
             # 1. Check for URL Fetch / Web Scraping Request
             url_match = re.search(r'https?://[^\s<>"]+', prompt)
             if url_match and any(w in prompt_lower for w in ["fetch", "read", "scrape", "open", "extract", "url", "page", "website", "content"]):
@@ -689,6 +735,16 @@ class AutonomousHeuristicPlanner(BasePlanner):
                     )
                 elif act == "memory_store" and obs.get("success"):
                     answer_parts.append(f"💾 Session memory confirmed ({obs.get('action')}).")
+                elif act == "send_email":
+                    if obs.get("success"):
+                        answer_parts.append(
+                            f"📧 **Email Successfully Dispatched via Gmail SMTP**\n"
+                            f"• **Recipient**: `{obs.get('recipient')}`\n"
+                            f"• **Subject**: **{obs.get('subject')}**\n"
+                            f"• **Status**: {obs.get('message')}"
+                        )
+                    else:
+                        answer_parts.append(f"❌ **Email Dispatch Failed**: {obs.get('error')}")
 
         final_text = "\n\n".join(answer_parts) if answer_parts else "Task completed successfully."
         return {
@@ -727,6 +783,11 @@ class GGUFLocalLLMPlanner(BasePlanner):
         # If tool observations have been collected in trace, synthesize final response using ALL collected data
         if len(trace) >= 1:
             return self.synthesize_final_answer(prompt, trace, tools_info)
+
+        # Check for Email Dispatch Request
+        email_plan = parse_email_request(prompt)
+        if email_plan:
+            return email_plan
 
         # Step 1: Evaluate if tool call is needed or if direct answer is sufficient
         tools_desc = "\n".join([

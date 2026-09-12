@@ -145,14 +145,20 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 
-# Email
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
-
+# Email Configuration (Django 6.1 MAILERS)
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': 'django.core.mail.backends.smtp.EmailBackend',
+        'OPTIONS': {
+            'host': 'smtp.gmail.com',
+            'port': 587,
+            'use_tls': True,
+            'username': 'shivansh.inurum@gmail.com',
+            'password': 'cnttylsflpancifo',
+        }
     },
 }
+DEFAULT_FROM_EMAIL = 'Agentic AI <shivansh.inurum@gmail.com>'
 
 # Google Maps API Configuration
 import os
