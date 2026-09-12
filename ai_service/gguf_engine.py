@@ -18,7 +18,7 @@ class GGUFEngine:
         self.model = None
         self.loaded_model_path: Optional[str] = None
         self.gpu_layers: int = -1  # -1 offloads all layers to Apple Silicon Metal GPU
-        self.context_size: int = 4096
+        self.context_size: int = 8192
         self.models_dir = DEFAULT_MODELS_DIR
         self.models_dir.mkdir(parents=True, exist_ok=True)
 
@@ -104,7 +104,7 @@ class GGUFEngine:
         self,
         model_path: Optional[str] = None,
         n_gpu_layers: int = -1,
-        n_ctx: int = 4096,
+        n_ctx: int = 8192,
         n_threads: int = 8
     ) -> Dict[str, Any]:
         """
@@ -165,7 +165,7 @@ class GGUFEngine:
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.2,
-        max_tokens: int = 1024,
+        max_tokens: int = 3500,
         stop: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """

@@ -1840,16 +1840,19 @@
                 if (!targetMsg) return resolve();
 
                 let currentIndex = 0;
-                const speed = 12; // ms per chunk
-                const chunkSize = 3;
+                const speed = 8; // ms per chunk
+                const chunkSize = 6;
 
                 const interval = setInterval(() => {
-                    if (!state.isGenerating) {
+                    if (currentIndex >= fullText.length) {
+                        targetMsg.content = fullText;
                         clearInterval(interval);
-                        return resolve();
+                        renderMessages();
+                        resolve();
+                        return;
                     }
 
-                    if (currentIndex >= fullText.length) {
+                    if (!state.isGenerating && state.abortController === null) {
                         targetMsg.content = fullText;
                         clearInterval(interval);
                         renderMessages();
@@ -2017,18 +2020,26 @@
             `;
         }
 
-        // Simple and robust Markdown Renderer
+        // High-Performance & Robust Markdown Renderer
         function renderMarkdown(text) {
             if (!text) return '';
 
-            // 1. Code blocks with copy button
-            let processed = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
-                const safeLang = lang || 'code';
+            let raw = text.trim();
+
+            // Auto-close unclosed code block during streaming
+            const backticks = (raw.match(/```/g) || []).length;
+            if (backticks % 2 !== 0) {
+                raw += '\n```';
+            }
+
+            // 1. Fenced Code Blocks
+            let processed = raw.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+                const safeLang = (lang || 'code').toLowerCase();
                 const codeId = 'code_' + Math.random().toString(36).substr(2, 9);
                 return `
                     <div class="code-block-container">
                         <div class="code-header">
-                            <span>${safeLang.toLowerCase()}</span>
+                            <span>${safeLang}</span>
                             <button class="btn-copy-code" onclick="copyCodeBlock('${codeId}', this)">
                                 📋 Copy Code
                             </button>
@@ -2039,8 +2050,8 @@
             });
 
             // 2. Markdown Tables
-            processed = processed.replace(/(?:^|\n)(\|.+?\|\n\|[-:\s|]+\|\n(?:\|.+?\|\n?)+)/g, (match, tableText) => {
-                const lines = tableText.trim().split('\n');
+            processed = processed.replace(/(?:^|\n)(\|.*\|[ \t]*\n\|[-:\s|]+\|[ \t]*\n(?:\|.*\|[ \t]*(?:\n|$))+)/g, (match, tableText) => {
+                const lines = tableText.trim().split('\n').filter(l => l.trim().length > 0);
                 if (lines.length < 2) return match;
 
                 const headerCols = lines[0].split('|').slice(1, -1).map(c => c.trim());
@@ -2070,39 +2081,44 @@
             // 4. Horizontal Dividers
             processed = processed.replace(/^---$/gim, '<hr class="chat-divider">');
 
-            // 5. Headings
-            processed = processed.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-            processed = processed.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-            processed = processed.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+            // 5. Headings (strip surrounding ** markers)
+            processed = processed.replace(/^###\s*\*{0,2}(.*?)\*{0,2}\s*$/gim, (match, hText) => `<h3>${renderInline(hText)}</h3>`);
+            processed = processed.replace(/^##\s*\*{0,2}(.*?)\*{0,2}\s*$/gim, (match, hText) => `<h2>${renderInline(hText)}</h2>`);
+            processed = processed.replace(/^#\s*\*{0,2}(.*?)\*{0,2}\s*$/gim, (match, hText) => `<h1>${renderInline(hText)}</h1>`);
 
-            // 6. Markdown Links [text](url)
-            processed = processed.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-link">$1</a>');
+            // 6. Unordered Lists (Group contiguous bullet items)
+            processed = processed.replace(/(?:^|\n)((?:[ \t]*[-*•]\s+.*(?:\n|$))+)/g, (match, listBlock) => {
+                const items = listBlock.trim().split('\n').map(item => {
+                    const cleanContent = item.replace(/^[ \t]*[-*•]\s+/, '');
+                    return `<li>${renderInline(cleanContent)}</li>`;
+                }).join('');
+                return `\n<ul>${items}</ul>\n`;
+            });
 
-            // 7. Bold, Italic, Inline Code
-            processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-            // 8. Lists (unordered & bullet points)
-            processed = processed.replace(/^\s*[-*•]\s+(.*)$/gim, '<li>$1</li>');
-            processed = processed.replace(/(<li>[\s\S]*?<\/li>)/gm, '<ul>$1</ul>');
-            processed = processed.replace(/<\/ul>\s*<ul>/g, '');
-
-            // 9. Line breaks and paragraphs
+            // 7. Line breaks and paragraph grouping
             const paragraphs = processed.split(/\n\n+/);
             processed = paragraphs.map(p => {
                 const trimmed = p.trim();
                 if (!trimmed) return '';
-                if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<div') || trimmed.startsWith('<blockquote') || trimmed.startsWith('<hr')) {
+                if (
+                    trimmed.startsWith('<h') ||
+                    trimmed.startsWith('<ul') ||
+                    trimmed.startsWith('<ol') ||
+                    trimmed.startsWith('<div') ||
+                    trimmed.startsWith('<blockquote') ||
+                    trimmed.startsWith('<hr') ||
+                    trimmed.startsWith('<table')
+                ) {
                     return trimmed;
                 }
-                return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+                return `<p>${renderInline(trimmed).replace(/\n/g, '<br>')}</p>`;
             }).join('');
 
             return processed;
         }
 
         function renderInline(text) {
+            if (!text) return '';
             return text
                 .replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-link">$1</a>')
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')

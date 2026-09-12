@@ -809,7 +809,7 @@ Formatting & Quality Guidelines:
 3. Attach reference source links wherever available (e.g. `🔗 **For More Details**: [Source Title](URL)`).
 4. Use clean Markdown tables for dates/forecasts/budgets/comparisons if applicable.
 5. Provide a warm, professional, engaging tone. Do NOT mention internal JSON schemas, tool names, or raw debugging data.
-6. Provide a complete, polished response that directly answers the user's objective.
+6. Provide a complete, fully finished, polished response that directly answers the user's objective. Ensure all sections, lists, and markdown tables are complete and closed.
 """
 
         messages = [
@@ -820,7 +820,7 @@ Formatting & Quality Guidelines:
         response = gguf_engine.chat_completion(
             messages=messages,
             temperature=0.6,
-            max_tokens=2048
+            max_tokens=3500
         )
 
         if response.get("success") and response.get("content"):

@@ -980,13 +980,20 @@
         function renderMarkdown(text) {
             if (!text) return '';
 
-            let processed = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+            let raw = text.trim();
+
+            const backticks = (raw.match(/```/g) || []).length;
+            if (backticks % 2 !== 0) {
+                raw += '\n```';
+            }
+
+            let processed = raw.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
                 return `<pre style="background: rgba(0,0,0,0.4); padding: 0.8rem; border-radius: 6px; overflow-x: auto;"><code>${escapeHtml(code.trim())}</code></pre>`;
             });
 
             // Markdown Tables
-            processed = processed.replace(/(?:^|\n)(\|.+?\|\n\|[-:\s|]+\|\n(?:\|.+?\|\n?)+)/g, (match, tableText) => {
-                const lines = tableText.trim().split('\n');
+            processed = processed.replace(/(?:^|\n)(\|.*\|[ \t]*\n\|[-:\s|]+\|[ \t]*\n(?:\|.*\|[ \t]*(?:\n|$))+)/g, (match, tableText) => {
+                const lines = tableText.trim().split('\n').filter(l => l.trim().length > 0);
                 if (lines.length < 2) return match;
 
                 const headerCols = lines[0].split('|').slice(1, -1).map(c => c.trim());
@@ -1010,39 +1017,41 @@
                 return '\n\n' + tableHtml + '\n\n';
             });
 
-            // Blockquotes
+            // Blockquotes & Dividers
             processed = processed.replace(/^>\s*(.*?)$/gim, '<blockquote class="chat-quote">$1</blockquote>');
-
-            // Horizontal Dividers
             processed = processed.replace(/^---$/gim, '<hr class="chat-divider">');
 
-            // Headings
-            processed = processed.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-            processed = processed.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-            processed = processed.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+            // Headings (strip surrounding ** markers)
+            processed = processed.replace(/^###\s*\*{0,2}(.*?)\*{0,2}\s*$/gim, (match, hText) => `<h3>${renderInline(hText)}</h3>`);
+            processed = processed.replace(/^##\s*\*{0,2}(.*?)\*{0,2}\s*$/gim, (match, hText) => `<h2>${renderInline(hText)}</h2>`);
+            processed = processed.replace(/^#\s*\*{0,2}(.*?)\*{0,2}\s*$/gim, (match, hText) => `<h1>${renderInline(hText)}</h1>`);
 
-            // Links [text](url)
-            processed = processed.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-link">$1</a>');
-
-            // Bold, Italic, Inline Code
-            processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            processed = processed.replace(/\*(.*?)\*/g, '<em>$1</em>');
-            processed = processed.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-            // Lists
-            processed = processed.replace(/^\s*[-*•]\s+(.*)$/gim, '<li>$1</li>');
-            processed = processed.replace(/(<li>[\s\S]*?<\/li>)/gm, '<ul>$1</ul>');
-            processed = processed.replace(/<\/ul>\s*<ul>/g, '');
+            // Unordered Lists (Group contiguous bullet items)
+            processed = processed.replace(/(?:^|\n)((?:[ \t]*[-*•]\s+.*(?:\n|$))+)/g, (match, listBlock) => {
+                const items = listBlock.trim().split('\n').map(item => {
+                    const cleanContent = item.replace(/^[ \t]*[-*•]\s+/, '');
+                    return `<li>${renderInline(cleanContent)}</li>`;
+                }).join('');
+                return `\n<ul>${items}</ul>\n`;
+            });
 
             // Paragraphs
             const paragraphs = processed.split(/\n\n+/);
             processed = paragraphs.map(p => {
                 const trimmed = p.trim();
                 if (!trimmed) return '';
-                if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<div') || trimmed.startsWith('<blockquote') || trimmed.startsWith('<hr')) {
+                if (
+                    trimmed.startsWith('<h') ||
+                    trimmed.startsWith('<ul') ||
+                    trimmed.startsWith('<ol') ||
+                    trimmed.startsWith('<div') ||
+                    trimmed.startsWith('<blockquote') ||
+                    trimmed.startsWith('<hr') ||
+                    trimmed.startsWith('<table')
+                ) {
                     return trimmed;
                 }
-                return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+                return `<p>${renderInline(trimmed).replace(/\n/g, '<br>')}</p>`;
             }).join('');
 
             return processed;
